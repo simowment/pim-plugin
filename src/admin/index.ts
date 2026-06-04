@@ -1,0 +1,2 @@
+// Medusa Admin extensions
+export {}

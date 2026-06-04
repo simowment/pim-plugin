@@ -1,0 +1,70 @@
+{
+  "name": "@medusastore/medusa-plugin-pim",
+  "version": "0.0.1",
+  "description": "Medusa v2 plugin for lightweight PIM — product content enrichment, localization, specifications, SEO, and metadata",
+  "main": ".medusa/server/src/index.js",
+  "types": ".medusa/server/src/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    "./.medusa/server/src/*": "./.medusa/server/src/*.js",
+    "./.medusa/server/src/modules/*": "./.medusa/server/src/modules/*/index.js",
+    "./workflows/*": "./.medusa/server/src/workflows/*.js",
+    "./modules/*": "./.medusa/server/src/modules/*/index.js",
+    "./admin": {
+      "import": "./.medusa/server/src/admin/index.mjs",
+      "require": "./.medusa/server/src/admin/index.js",
+      "default": "./.medusa/server/src/admin/index.js"
+    },
+    "./*": "./.medusa/server/src/*.js",
+    ".": {
+      "types": "./.medusa/server/src/index.d.ts",
+      "import": "./.medusa/server/src/index.js",
+      "require": "./.medusa/server/src/index.js",
+      "default": "./.medusa/server/src/index.js"
+    }
+  },
+  "files": [
+    ".medusa/server"
+  ],
+  "scripts": {
+    "build": "medusa plugin:build && tsc",
+    "dev": "medusa plugin:develop",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
+    "watch": "tsc --watch --preserveWatchOutput",
+    "test:unit": "vitest run --config vitest.config.ts"
+  },
+  "peerDependencies": {
+    "@medusajs/framework": "^2.13.0",
+    "@medusajs/medusa": "^2.13.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "devDependencies": {
+    "@medusajs/cli": "^2.13.0",
+    "@swc/core": "^1.15.26",
+    "@types/react": "^18.3.2",
+    "@types/react-dom": "^18.2.25",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.64.2",
+    "lucide-react": "^0.469.0",
+    "zod": "^3.24.0"
+  },
+  "keywords": [
+    "medusa-plugin",
+    "medusa-v2",
+    "pim",
+    "product-information-management",
+    "localization",
+    "seo"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  }
+}
