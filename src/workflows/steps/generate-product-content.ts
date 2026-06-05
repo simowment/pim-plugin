@@ -83,8 +83,8 @@ export const callAiProviderStep = createStep(
 
     logger.info(`[PIM] Calling AI provider for product=${input.product_id} locale=${input.locale} mode=${input.mode}`)
 
-    const systemPrompt = buildSystemPrompt(input.mode, input.tone, input.locale)
-    const userPrompt = buildUserPrompt(input.mode, input.locale, input.existing_content)
+    const systemPrompt = buildSystemPrompt(input.mode, input.tone)
+    const userPrompt = buildUserPrompt(input.mode, input.existing_content)
 
     const response = await fetch(`${input.ai_base_url}/chat/completions`, {
       method: 'POST',
@@ -148,7 +148,7 @@ export const finalizeJobStep = createStep(
 
 // ─── prompt helpers ────────────────────────────────────────────────────────
 
-function buildSystemPrompt(mode: string, tone: string, targetLocale: string): string {
+function buildSystemPrompt(mode: string, tone: string): string {
   const toneDesc =
     tone === 'luxury'
       ? 'Premium, aspirational, evocative language.'
@@ -167,25 +167,12 @@ function buildSystemPrompt(mode: string, tone: string, targetLocale: string): st
   }
 
   return `You are a professional e-commerce content writer. ${modeDesc[mode] ?? modeDesc.full}
-Target locale: ${targetLocale}. Write every generated human-facing field in this locale.
 Tone: ${toneDesc}
 Respond with a single JSON object containing only the fields you generated.
 Fields may include: title, subtitle, description, short_description, bullets_json (array), specifications_json (array of {key,label,value,unit,group}), seo_json ({title,description,keywords}).`
 }
 
-function buildUserPrompt(
-  mode: string,
-  targetLocale: string,
-  existing: Record<string, unknown> | null,
-): string {
-  const instruction =
-    mode === 'translate'
-      ? `Translate the source content into ${targetLocale}. Preserve product facts and structure.`
-      : `Generate or improve content for ${targetLocale}. Preserve product facts.`
-
-  if (!existing) {
-    return `${instruction}\nNo source content is available. Return a conservative draft with empty factual fields omitted.`
-  }
-
-  return `${instruction}\nSource content/context:\n${JSON.stringify(existing, null, 2)}`
+function buildUserPrompt(mode: string, existing: Record<string, unknown> | null): string {
+  if (!existing) return 'No existing content available. Generate from scratch based on the product context.'
+  return `Existing content:\n${JSON.stringify(existing, null, 2)}`
 }

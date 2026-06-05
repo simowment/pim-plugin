@@ -18,7 +18,7 @@ export async function POST(
   const { data: products } = await query.graph({
     entity: 'product',
     filters: { id: product_id },
-    fields: ['id', 'title', 'subtitle', 'description', 'metadata'],
+    fields: ['id', 'title', 'description'],
   })
   if (!products.length) {
     throw new MedusaError(MedusaError.Types.NOT_FOUND, `Product ${product_id} not found`)
@@ -26,22 +26,14 @@ export async function POST(
 
   // Fetch existing content for the target locale to enrich rather than overwrite
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
-  const sourceLocale = req.validatedBody.source_locale ?? req.validatedBody.target_locale
   const [existing] = await pim.listAndCountProductContents(
     {
       product_id,
-      locale: sourceLocale,
+      locale: req.validatedBody.source_locale ?? req.validatedBody.target_locale,
       channel: [req.validatedBody.channel ?? 'storefront', 'default'] as any,
     },
     { take: 1 },
   )
-  const sourceContent = (existing[0] as unknown as Record<string, unknown> | undefined) ?? {
-    locale: 'product',
-    title: products[0].title,
-    subtitle: products[0].subtitle ?? null,
-    description: products[0].description ?? null,
-    metadata: products[0].metadata ?? null,
-  }
 
   // Read AI config from environment — the route pulls these server-side so keys never reach the client
   const aiConfig = {
@@ -63,7 +55,7 @@ export async function POST(
       ...req.validatedBody,
       product_id,
       created_by: actor_id,
-      existing_content: sourceContent,
+      existing_content: (existing[0] as unknown as Record<string, unknown>) ?? null,
       ...aiConfig,
     },
   })
