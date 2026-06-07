@@ -33,8 +33,6 @@ function resolveContent(
   const candidates = [
     { locale: requestedLocale, channel: requestedChannel },
     { locale: requestedLocale, channel: defaultChannel },
-    { locale: defaultLocale, channel: requestedChannel },
-    { locale: defaultLocale, channel: defaultChannel },
   ]
 
   for (const candidate of candidates) {
@@ -77,20 +75,20 @@ describe('Content fallback resolution', () => {
     expect(result?.title).toBe('French default')
   })
 
-  it('falls back to default locale + requested channel', () => {
+  it('does not fall back to default locale for a different requested locale', () => {
     const records = [
       { ...base, id: 'cnt_1', locale: 'en', channel: 'storefront', title: 'English storefront' },
     ]
     const result = resolveContent(records, 'prod_1', 'fr', 'storefront')
-    expect(result?.title).toBe('English storefront')
+    expect(result).toBeNull()
   })
 
-  it('falls back to default locale + default channel as last resort', () => {
+  it('does not fall back to default locale + default channel as last resort', () => {
     const records = [
       { ...base, id: 'cnt_1', locale: 'en', channel: 'default', title: 'English default' },
     ]
     const result = resolveContent(records, 'prod_1', 'fr', 'google', 'en', 'default')
-    expect(result?.title).toBe('English default')
+    expect(result).toBeNull()
   })
 
   it('returns null when no published content exists', () => {

@@ -1,21 +1,43 @@
 import { defineRouteConfig } from '@medusajs/admin-sdk'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  Container,
-  Button,
-  Text,
   Badge,
-  Tabs,
+  Button,
+  Container,
   Input,
   Label,
   Select,
-  toast,
   Table,
+  Tabs,
+  Text,
+  Textarea,
+  toast,
 } from '@medusajs/ui'
 import { sdk } from '../../lib/sdk'
 
-type PimContent = Record<string, unknown>
+type AdminProduct = {
+  id: string
+  title: string
+  handle?: string | null
+  thumbnail?: string | null
+  description?: string | null
+}
+
+type PimContent = {
+  id: string
+  product_id: string
+  locale: string
+  channel: string
+  status: string
+  title: string | null
+  description: string | null
+  short_description: string | null
+  seo_json: Record<string, unknown> | null
+  updated_at: string
+}
+
 type MetadataField = {
   id: string
   key: string
@@ -27,7 +49,27 @@ type MetadataField = {
   visible_in_storefront: boolean
   required: boolean
 }
-type ContentJob = Record<string, unknown>
+
+type NewField = { key: string; label: string; type: string; scope: string }
+
+const LOCALES = ['en', 'fr', 'es', 'de', 'nl', 'it', 'pt']
+const CHANNELS = ['storefront', 'default', 'google', 'meta']
+const STATUS_COLORS: Record<string, 'green' | 'blue' | 'orange' | 'grey' | 'red'> = {
+  published: 'green',
+  reviewed: 'blue',
+  ai_generated: 'orange',
+  draft: 'grey',
+  archived: 'red',
+}
+
+const emptyForm = {
+  title: '',
+  short_description: '',
+  description: '',
+  seo_title: '',
+  seo_description: '',
+  seo_keywords: '',
+}
 
 const LoadingState = () => (
   <div className="flex justify-center py-8">
@@ -37,7 +79,16 @@ const LoadingState = () => (
   </div>
 )
 
-// ─── PIM Dashboard Page ────────────────────────────────────────────────────
+const statusBadge = (status?: string | null) =>
+  status ? (
+    <Badge color={STATUS_COLORS[status] ?? 'grey'} size="2xsmall">
+      {status}
+    </Badge>
+  ) : (
+    <Badge color="grey" size="2xsmall">
+      missing
+    </Badge>
+  )
 
 const PimPage = () => {
   const [activeTab, setActiveTab] = useState('products')
@@ -45,14 +96,19 @@ const PimPage = () => {
   return (
     <div className="flex flex-col gap-y-2 p-4">
       <div className="flex items-center justify-between">
-        <Text size="xlarge" weight="plus">
-          PIM — Product Information Management
-        </Text>
+        <div>
+          <Text size="xlarge" weight="plus">
+            PIM - Product Information Management
+          </Text>
+          <Text size="small" className="text-ui-fg-subtle">
+            Edit product copy, translations, SEO fields, and reusable metadata outside the product page.
+          </Text>
+        </div>
       </div>
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <Tabs.List>
-          <Tabs.Trigger value="products">Products</Tabs.Trigger>
-          <Tabs.Trigger value="jobs">Jobs</Tabs.Trigger>
+          <Tabs.Trigger value="products">Product Content</Tabs.Trigger>
+          <Tabs.Trigger value="jobs">AI Jobs</Tabs.Trigger>
           <Tabs.Trigger value="metadata-fields">Metadata Fields</Tabs.Trigger>
         </Tabs.List>
         <Tabs.Content value="products">
@@ -69,105 +125,371 @@ const PimPage = () => {
   )
 }
 
-// ─── Products Tab ──────────────────────────────────────────────────────────
-
-const STATUS_COLORS: Record<string, 'green' | 'blue' | 'orange' | 'grey' | 'red'> = {
-  published: 'green',
-  reviewed: 'blue',
-  ai_generated: 'orange',
-  draft: 'grey',
-  archived: 'red',
-}
-
 function ProductsTab() {
-  const [locale, setLocale] = useState('en')
+  const queryClient = useQueryClient()
+  const [search, setSearch] = useState('')
+  const [selectedProductId, setSelectedProductId] = useState('')
+  const [locale, setLocale] = useState('fr')
+  const [channel, setChannel] = useState('storefront')
+  const [form, setForm] = useState(emptyForm)
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['pim-content-list', locale],
+  const productsQuery = useQuery({
+    queryKey: ['pim-products', search],
     queryFn: () =>
-      sdk.client.fetch<{ content: PimContent[]; count: number }>(
-        `/admin/pim/content?locale=${locale}&limit=50`,
-      ),
+      sdk.admin.product.list({
+        limit: 25,
+        q: search || undefined,
+        fields: 'id,title,handle,thumbnail,description',
+      } as Record<string, unknown>) as Promise<{ products: AdminProduct[]; count: number }>,
   })
 
+  const products = productsQuery.data?.products ?? []
+
+  useEffect(() => {
+    if (!selectedProductId && products[0]?.id) {
+      setSelectedProductId(products[0].id)
+    }
+  }, [products, selectedProductId])
+
+  const selectedProduct = useMemo(
+    () => products.find((product) => product.id === selectedProductId) ?? null,
+    [products, selectedProductId],
+  )
+
+  const contentQuery = useQuery({
+    queryKey: ['pim-product-content', selectedProductId, locale, channel],
+    queryFn: () =>
+      sdk.client.fetch<{ content: PimContent[] }>(
+        `/admin/pim/products/${selectedProductId}/content?locale=${locale}&channel=${channel}`,
+      ),
+    enabled: Boolean(selectedProductId),
+  })
+
+  const allContentQuery = useQuery({
+    queryKey: ['pim-product-content-all', selectedProductId],
+    queryFn: () =>
+      sdk.client.fetch<{ content: PimContent[] }>(
+        `/admin/pim/content?product_id=${selectedProductId}&limit=100`,
+      ),
+    enabled: Boolean(selectedProductId),
+  })
+
+  const activeContent = contentQuery.data?.content?.find((content) => content.status !== 'archived')
+    ?? contentQuery.data?.content?.[0]
+
+  useEffect(() => {
+    setForm({
+      title: activeContent?.title ?? selectedProduct?.title ?? '',
+      short_description: activeContent?.short_description ?? '',
+      description: activeContent?.description ?? selectedProduct?.description ?? '',
+      seo_title: String(activeContent?.seo_json?.title ?? ''),
+      seo_description: String(activeContent?.seo_json?.description ?? ''),
+      seo_keywords: Array.isArray(activeContent?.seo_json?.keywords)
+        ? (activeContent?.seo_json?.keywords as string[]).join(', ')
+        : '',
+    })
+  }, [activeContent?.id, selectedProductId, locale, channel])
+
+  const invalidateContent = () => {
+    queryClient.invalidateQueries({ queryKey: ['pim-product-content', selectedProductId, locale, channel] })
+    queryClient.invalidateQueries({ queryKey: ['pim-product-content-all', selectedProductId] })
+    queryClient.invalidateQueries({ queryKey: ['pim-content-list'] })
+  }
+
+  const saveDraftMutation = useMutation({
+    mutationFn: () =>
+      sdk.client.fetch<{ content: PimContent }>(`/admin/pim/products/${selectedProductId}/content`, {
+        method: 'POST',
+        body: {
+          locale,
+          channel,
+          title: form.title || null,
+          short_description: form.short_description || null,
+          description: form.description || null,
+          seo_json: {
+            title: form.seo_title || undefined,
+            description: form.seo_description || undefined,
+            keywords: form.seo_keywords
+              .split(',')
+              .map((keyword) => keyword.trim())
+              .filter(Boolean),
+          },
+          change_reason: `PIM ${locale}/${channel} edit`,
+        },
+      }),
+    onSuccess: () => {
+      toast.success('Draft saved')
+      invalidateContent()
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
+
+  const publishMutation = useMutation({
+    mutationFn: (contentId: string) =>
+      sdk.client.fetch(`/admin/pim/products/${selectedProductId}/publish`, {
+        method: 'POST',
+        body: { content_id: contentId, archive_previous: true },
+      }),
+    onSuccess: () => {
+      toast.success('Content published')
+      invalidateContent()
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
+
+  const translateMutation = useMutation({
+    mutationFn: () =>
+      sdk.client.fetch(`/admin/pim/products/${selectedProductId}/generate`, {
+        method: 'POST',
+        body: {
+          source_locale: 'en',
+          target_locale: locale,
+          channel,
+          mode: 'translate',
+          tone: 'neutral',
+          save_as: 'draft',
+        },
+      }),
+    onSuccess: () => {
+      toast.success('Translation draft generated')
+      invalidateContent()
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
+
+  const canPublish = activeContent && ['draft', 'ai_generated', 'reviewed'].includes(activeContent.status)
+
   return (
-    <Container className="mt-4">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-ui-border-base">
-        <Text size="small" weight="plus">
-          Content Records
-        </Text>
-        <Select size="small" value={locale} onValueChange={setLocale}>
-          <Select.Trigger>
-            <Select.Value />
-          </Select.Trigger>
-          <Select.Content>
-            {['en', 'fr', 'es', 'de', 'nl'].map((l) => (
-              <Select.Item key={l} value={l}>
-                {l.toUpperCase()}
-              </Select.Item>
-            ))}
-          </Select.Content>
-        </Select>
-      </div>
-      {isLoading ? (
-        <LoadingState />
-      ) : (
-        <Table>
-          <Table.Header>
-            <Table.Row>
-              <Table.HeaderCell>Product ID</Table.HeaderCell>
-              <Table.HeaderCell>Locale</Table.HeaderCell>
-              <Table.HeaderCell>Channel</Table.HeaderCell>
-              <Table.HeaderCell>Status</Table.HeaderCell>
-              <Table.HeaderCell>Updated</Table.HeaderCell>
-            </Table.Row>
-          </Table.Header>
-          <Table.Body>
-            {data?.content?.map((c) => (
-              <Table.Row key={c.id as string}>
-                <Table.Cell>
-                  <Text size="small" className="font-mono">
-                    {(c.product_id as string)?.slice(0, 16)}…
+    <div className="mt-4 grid grid-cols-[minmax(18rem,0.35fr)_minmax(0,0.65fr)] gap-4">
+      <Container className="overflow-hidden">
+        <div className="border-b border-ui-border-base px-6 py-4">
+          <Text size="small" weight="plus">
+            Products
+          </Text>
+          <div className="mt-3">
+            <Input
+              placeholder="Search products"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+        </div>
+        {productsQuery.isLoading ? (
+          <LoadingState />
+        ) : (
+          <div className="max-h-[calc(100vh-18rem)] overflow-y-auto p-2">
+            {products.map((product) => (
+              <button
+                key={product.id}
+                className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors ${
+                  selectedProductId === product.id
+                    ? 'bg-ui-bg-component-hover'
+                    : 'hover:bg-ui-bg-component-hover'
+                }`}
+                onClick={() => setSelectedProductId(product.id)}
+              >
+                <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-ui-bg-subtle">
+                  {product.thumbnail ? (
+                    <img
+                      src={product.thumbnail}
+                      alt=""
+                      className="size-full object-cover"
+                    />
+                  ) : (
+                    <Text size="xsmall" className="text-ui-fg-muted">
+                      IMG
+                    </Text>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <Text size="small" weight="plus" className="truncate">
+                    {product.title}
                   </Text>
-                </Table.Cell>
-                <Table.Cell>
-                  <Text size="small">{c.locale as string}</Text>
-                </Table.Cell>
-                <Table.Cell>
-                  <Text size="small">{c.channel as string}</Text>
-                </Table.Cell>
-                <Table.Cell>
-                  <Badge color={STATUS_COLORS[c.status as string] ?? 'grey'} size="2xsmall">
-                    {c.status as string}
-                  </Badge>
-                </Table.Cell>
-                <Table.Cell>
-                  <Text size="xsmall" className="text-ui-fg-subtle">
-                    {new Date(c.updated_at as string).toLocaleDateString()}
+                  <Text size="xsmall" className="truncate text-ui-fg-subtle">
+                    {product.handle ?? product.id}
                   </Text>
-                </Table.Cell>
-              </Table.Row>
+                </div>
+              </button>
             ))}
-          </Table.Body>
-        </Table>
-      )}
-      <div className="px-6 py-3 text-right">
-        <Text size="xsmall" className="text-ui-fg-subtle">
-          {data?.count ?? 0} records
-        </Text>
-      </div>
-    </Container>
+            {!products.length && (
+              <Text size="small" className="px-4 py-6 text-ui-fg-subtle">
+                No products found.
+              </Text>
+            )}
+          </div>
+        )}
+      </Container>
+
+      <Container className="overflow-hidden">
+        <div className="flex items-center justify-between border-b border-ui-border-base px-6 py-4">
+          <div className="min-w-0">
+            <Text size="small" weight="plus" className="truncate">
+              {selectedProduct?.title ?? 'Select a product'}
+            </Text>
+            <Text size="xsmall" className="text-ui-fg-subtle">
+              {selectedProductId || 'Choose a product to edit localized content.'}
+            </Text>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select size="small" value={locale} onValueChange={setLocale}>
+              <Select.Trigger>
+                <Select.Value />
+              </Select.Trigger>
+              <Select.Content>
+                {LOCALES.map((item) => (
+                  <Select.Item key={item} value={item}>
+                    {item.toUpperCase()}
+                  </Select.Item>
+                ))}
+              </Select.Content>
+            </Select>
+            <Select size="small" value={channel} onValueChange={setChannel}>
+              <Select.Trigger>
+                <Select.Value />
+              </Select.Trigger>
+              <Select.Content>
+                {CHANNELS.map((item) => (
+                  <Select.Item key={item} value={item}>
+                    {item}
+                  </Select.Item>
+                ))}
+              </Select.Content>
+            </Select>
+            {statusBadge(activeContent?.status)}
+          </div>
+        </div>
+
+        {!selectedProduct ? (
+          <Text size="small" className="px-6 py-8 text-ui-fg-subtle">
+            Select a product to edit its localized storefront content.
+          </Text>
+        ) : contentQuery.isLoading ? (
+          <LoadingState />
+        ) : (
+          <div className="grid grid-cols-[minmax(0,1fr)_16rem] gap-0">
+            <div className="space-y-4 px-6 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Title">
+                  <Input
+                    value={form.title}
+                    onChange={(event) => setForm({ ...form, title: event.target.value })}
+                  />
+                </Field>
+              </div>
+              <Field label="Short description">
+                <Input
+                  value={form.short_description}
+                  onChange={(event) => setForm({ ...form, short_description: event.target.value })}
+                />
+              </Field>
+              <Field label="Description">
+                <Textarea
+                  rows={12}
+                  value={form.description}
+                  onChange={(event) => setForm({ ...form, description: event.target.value })}
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="SEO title">
+                  <Input
+                    value={form.seo_title}
+                    onChange={(event) => setForm({ ...form, seo_title: event.target.value })}
+                  />
+                </Field>
+                <Field label="SEO keywords">
+                  <Input
+                    value={form.seo_keywords}
+                    onChange={(event) => setForm({ ...form, seo_keywords: event.target.value })}
+                    placeholder="lamp, mushroom lamp, bedside"
+                  />
+                </Field>
+              </div>
+              <Field label="SEO description">
+                <Textarea
+                  rows={3}
+                  value={form.seo_description}
+                  onChange={(event) => setForm({ ...form, seo_description: event.target.value })}
+                />
+              </Field>
+              <div className="flex items-center justify-end gap-2 border-t border-ui-border-base pt-4">
+                <Button
+                  size="small"
+                  variant="secondary"
+                  isLoading={translateMutation.isPending}
+                  disabled={!selectedProductId || translateMutation.isPending || locale === 'en'}
+                  onClick={() => translateMutation.mutate()}
+                >
+                  Translate from EN
+                </Button>
+                <Button
+                  size="small"
+                  variant="secondary"
+                  isLoading={saveDraftMutation.isPending}
+                  disabled={!selectedProductId || saveDraftMutation.isPending}
+                  onClick={() => saveDraftMutation.mutate()}
+                >
+                  Save Draft
+                </Button>
+                <Button
+                  size="small"
+                  isLoading={publishMutation.isPending}
+                  disabled={!canPublish || publishMutation.isPending}
+                  onClick={() => activeContent?.id && publishMutation.mutate(activeContent.id)}
+                >
+                  Publish
+                </Button>
+              </div>
+            </div>
+
+            <div className="border-l border-ui-border-base px-4 py-4">
+              <Text size="small" weight="plus">
+                Locale status
+              </Text>
+              <div className="mt-3 flex flex-col gap-2">
+                {LOCALES.map((item) => {
+                  const match = allContentQuery.data?.content?.find(
+                    (content) =>
+                      content.locale === item &&
+                      content.channel === channel &&
+                      content.status !== 'archived',
+                  )
+                  return (
+                    <button
+                      key={item}
+                      className={`flex items-center justify-between rounded-md px-3 py-2 text-left hover:bg-ui-bg-component-hover ${
+                        locale === item ? 'bg-ui-bg-component-hover' : ''
+                      }`}
+                      onClick={() => setLocale(item)}
+                    >
+                      <Text size="small">{item.toUpperCase()}</Text>
+                      {statusBadge(match?.status)}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </Container>
+    </div>
   )
 }
 
-// ─── Jobs Tab ──────────────────────────────────────────────────────────────
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-y-2">
+      <Label>{label}</Label>
+      {children}
+    </div>
+  )
+}
 
 function JobsTab() {
   const { data, isLoading } = useQuery({
     queryKey: ['pim-content-list-jobs'],
     queryFn: () =>
-      sdk.client.fetch<{ content: ContentJob[]; count: number }>(
-        '/admin/pim/content?limit=50&status=queued,running,failed,completed',
+      sdk.client.fetch<{ content: Array<Record<string, unknown>>; count: number }>(
+        '/admin/pim/content?limit=50&status=ai_generated',
       ),
   })
 
@@ -177,17 +499,12 @@ function JobsTab() {
         <LoadingState />
       ) : (
         <Text size="small" className="text-ui-fg-subtle">
-          Jobs are tracked in the ProductContentJob model.{' '}
-          {data?.count ?? 0} recent records found.
+          {data?.count ?? 0} generated content records waiting for review.
         </Text>
       )}
     </Container>
   )
 }
-
-// ─── Metadata Fields Tab ───────────────────────────────────────────────────
-
-type NewField = { key: string; label: string; type: string; scope: string }
 
 function MetadataFieldsTab() {
   const queryClient = useQueryClient()
@@ -217,7 +534,7 @@ function MetadataFieldsTab() {
       setShowForm(false)
       setNewField({ key: '', label: '', type: 'string', scope: 'content' })
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (error: Error) => toast.error(error.message),
   })
 
   const deleteMutation = useMutation({
@@ -227,12 +544,12 @@ function MetadataFieldsTab() {
       toast.success('Field deleted')
       queryClient.invalidateQueries({ queryKey: ['pim-metadata-fields'] })
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (error: Error) => toast.error(error.message),
   })
 
   return (
     <Container className="mt-4">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-ui-border-base">
+      <div className="flex items-center justify-between border-b border-ui-border-base px-6 py-4">
         <Text size="small" weight="plus">
           Metadata Field Definitions
         </Text>
@@ -242,54 +559,58 @@ function MetadataFieldsTab() {
       </div>
 
       {showForm && (
-        <div className="px-6 py-4 border-b border-ui-border-base bg-ui-bg-subtle space-y-3">
+        <div className="space-y-3 border-b border-ui-border-base bg-ui-bg-subtle px-6 py-4">
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <Label>Key</Label>
+            <Field label="Key">
               <Input
-                placeholder="e.g. material"
+                placeholder="material"
                 value={newField.key}
-                onChange={(e) => setNewField({ ...newField, key: e.target.value })}
+                onChange={(event) => setNewField({ ...newField, key: event.target.value })}
               />
-            </div>
-            <div className="space-y-1">
-              <Label>Label</Label>
+            </Field>
+            <Field label="Label">
               <Input
-                placeholder="e.g. Material"
+                placeholder="Material"
                 value={newField.label}
-                onChange={(e) => setNewField({ ...newField, label: e.target.value })}
+                onChange={(event) => setNewField({ ...newField, label: event.target.value })}
               />
-            </div>
-            <div className="space-y-1">
-              <Label>Type</Label>
+            </Field>
+            <Field label="Type">
               <Select
                 size="small"
                 value={newField.type}
-                onValueChange={(v) => setNewField({ ...newField, type: v })}
+                onValueChange={(value) => setNewField({ ...newField, type: value })}
               >
-                <Select.Trigger><Select.Value /></Select.Trigger>
+                <Select.Trigger>
+                  <Select.Value />
+                </Select.Trigger>
                 <Select.Content>
-                  {['string', 'text', 'number', 'boolean', 'select', 'json', 'url'].map((t) => (
-                    <Select.Item key={t} value={t}>{t}</Select.Item>
+                  {['string', 'text', 'number', 'boolean', 'select', 'json', 'url'].map((type) => (
+                    <Select.Item key={type} value={type}>
+                      {type}
+                    </Select.Item>
                   ))}
                 </Select.Content>
               </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Scope</Label>
+            </Field>
+            <Field label="Scope">
               <Select
                 size="small"
                 value={newField.scope}
-                onValueChange={(v) => setNewField({ ...newField, scope: v })}
+                onValueChange={(value) => setNewField({ ...newField, scope: value })}
               >
-                <Select.Trigger><Select.Value /></Select.Trigger>
+                <Select.Trigger>
+                  <Select.Value />
+                </Select.Trigger>
                 <Select.Content>
-                  {['product', 'variant', 'content'].map((s) => (
-                    <Select.Item key={s} value={s}>{s}</Select.Item>
+                  {['product', 'variant', 'content'].map((scope) => (
+                    <Select.Item key={scope} value={scope}>
+                      {scope}
+                    </Select.Item>
                   ))}
                 </Select.Content>
               </Select>
-            </div>
+            </Field>
           </div>
           <Button
             size="small"
@@ -317,25 +638,25 @@ function MetadataFieldsTab() {
             </Table.Row>
           </Table.Header>
           <Table.Body>
-            {data?.metadata_fields?.map((f) => (
-              <Table.Row key={f.id}>
+            {data?.metadata_fields?.map((field) => (
+              <Table.Row key={field.id}>
                 <Table.Cell>
                   <Text size="small" className="font-mono">
-                    {f.key}
+                    {field.key}
                   </Text>
                 </Table.Cell>
                 <Table.Cell>
-                  <Text size="small">{f.label}</Text>
+                  <Text size="small">{field.label}</Text>
                 </Table.Cell>
                 <Table.Cell>
-                  <Text size="small">{f.type}</Text>
+                  <Text size="small">{field.type}</Text>
                 </Table.Cell>
                 <Table.Cell>
-                  <Text size="small">{f.scope}</Text>
+                  <Text size="small">{field.scope}</Text>
                 </Table.Cell>
                 <Table.Cell>
-                  <Badge color={f.visible_in_storefront ? 'green' : 'grey'} size="2xsmall">
-                    {f.visible_in_storefront ? 'visible' : 'hidden'}
+                  <Badge color={field.visible_in_storefront ? 'green' : 'grey'} size="2xsmall">
+                    {field.visible_in_storefront ? 'visible' : 'hidden'}
                   </Badge>
                 </Table.Cell>
                 <Table.Cell>
@@ -343,7 +664,7 @@ function MetadataFieldsTab() {
                     size="small"
                     variant="danger"
                     isLoading={deleteMutation.isPending}
-                    onClick={() => deleteMutation.mutate(f.id)}
+                    onClick={() => deleteMutation.mutate(field.id)}
                   >
                     Delete
                   </Button>

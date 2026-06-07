@@ -4,7 +4,6 @@ import type PimModuleService from '../../../../../modules/pim/service'
 import type { BatchContentSchema } from '../../../../middlewares'
 
 const PUBLISHED_STATUS = 'published'
-const DEFAULT_LOCALE = process.env.PIM_DEFAULT_LOCALE ?? 'en'
 const DEFAULT_CHANNEL = process.env.PIM_DEFAULT_CHANNEL ?? 'storefront'
 
 // POST /store/pim/content/batch
@@ -30,12 +29,10 @@ export async function POST(
   const resultMap = new Map<string, Record<string, unknown>>()
 
   for (const productId of product_ids) {
-    // Priority: exact locale+channel → exact locale+default channel → default locale+channel → default locale+default channel
+    // Priority: exact locale+channel → exact locale+default channel
     const candidates = [
       { l: locale, c: effectiveChannel },
       { l: locale, c: DEFAULT_CHANNEL },
-      { l: DEFAULT_LOCALE, c: effectiveChannel },
-      { l: DEFAULT_LOCALE, c: DEFAULT_CHANNEL },
     ]
 
     for (const { l, c } of candidates) {
@@ -58,7 +55,6 @@ export async function POST(
       locale: r.locale,
       channel: r.channel,
       title: r.title ?? null,
-      subtitle: r.subtitle ?? null,
       description: r.description ?? null,
       short_description: r.short_description ?? null,
       bullets: r.bullets_json ?? null,

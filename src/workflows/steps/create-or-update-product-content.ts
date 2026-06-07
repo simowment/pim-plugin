@@ -11,7 +11,6 @@ export type CreateOrUpdateContentInput = {
   locale: string
   channel?: string
   title?: string | null
-  subtitle?: string | null
   description?: string | null
   short_description?: string | null
   bullets_json?: unknown[] | null
@@ -60,7 +59,6 @@ export const createOrUpdateProductContentStep = createStep(
       locale: input.locale,
       channel,
       title: input.title ?? null,
-      subtitle: input.subtitle ?? null,
       description: input.description ?? null,
       short_description: input.short_description ?? null,
       bullets_json: (input.bullets_json ?? null) as unknown as Record<string, unknown> | null,

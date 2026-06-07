@@ -75,7 +75,6 @@ export const generateProductContentWorkflow: any = createWorkflow(
       locale: input.target_locale,
       channel: input.channel ?? 'storefront',
       title: (generated as any).title ?? null,
-      subtitle: (generated as any).subtitle ?? null,
       description: (generated as any).description ?? null,
       short_description: (generated as any).short_description ?? null,
       bullets_json: (generated as any).bullets_json ?? null,

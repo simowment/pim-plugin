@@ -72,7 +72,7 @@ export const callAiProviderStep = createStep(
     },
     { container },
   ) => {
-    const logger = container.resolve('logger')
+    const logger = container.resolve<{ info: (message: string) => void }>('logger')
 
     if (!input.ai_api_key) {
       throw new MedusaError(
@@ -169,7 +169,7 @@ function buildSystemPrompt(mode: string, tone: string): string {
   return `You are a professional e-commerce content writer. ${modeDesc[mode] ?? modeDesc.full}
 Tone: ${toneDesc}
 Respond with a single JSON object containing only the fields you generated.
-Fields may include: title, subtitle, description, short_description, bullets_json (array), specifications_json (array of {key,label,value,unit,group}), seo_json ({title,description,keywords}).`
+Fields may include: title, description, short_description, bullets_json (array), specifications_json (array of {key,label,value,unit,group}), seo_json ({title,description,keywords}).`
 }
 
 function buildUserPrompt(mode: string, existing: Record<string, unknown> | null): string {

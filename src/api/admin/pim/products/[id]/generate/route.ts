@@ -38,15 +38,22 @@ export async function POST(
   // Read AI config from environment — the route pulls these server-side so keys never reach the client
   const aiConfig = {
     ai_provider: process.env.PIM_AI_PROVIDER ?? 'openrouter',
-    ai_api_key: process.env.PIM_AI_API_KEY ?? '',
-    ai_base_url: process.env.PIM_AI_BASE_URL ?? 'https://openrouter.ai/api/v1',
-    ai_model: process.env.PIM_AI_MODEL ?? 'openai/gpt-4o-mini',
+    ai_api_key:
+      process.env.PIM_AI_API_KEY ??
+      process.env.OPENROUTER_API_KEY ??
+      process.env.KILOCODE_API_KEY ??
+      '',
+    ai_base_url:
+      process.env.PIM_AI_BASE_URL ??
+      process.env.AI_GATEWAY_URL ??
+      'https://openrouter.ai/api/v1',
+    ai_model: process.env.PIM_AI_MODEL ?? process.env.AI_MODEL ?? 'openai/gpt-4o-mini',
   }
 
   if (!aiConfig.ai_api_key) {
     throw new MedusaError(
       MedusaError.Types.INVALID_DATA,
-      'AI provider is not configured. Set PIM_AI_API_KEY in your environment.',
+      'AI provider is not configured. Set PIM_AI_API_KEY, OPENROUTER_API_KEY, or KILOCODE_API_KEY in your environment.',
     )
   }
 

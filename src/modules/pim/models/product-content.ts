@@ -9,7 +9,6 @@ const ProductContent = model.define('product_content', {
   source: model.enum(['supplier', 'manual', 'ai', 'import', 'directus', 'agent']).default('manual'),
 
   title: model.text().nullable(),
-  subtitle: model.text().nullable(),
   description: model.text().nullable(),
   short_description: model.text().nullable(),
 

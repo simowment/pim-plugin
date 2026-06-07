@@ -25,7 +25,6 @@ export const UpsertContentSchema = z.object({
   locale: z.string(),
   channel: z.string().optional(),
   title: z.string().nullable().optional(),
-  subtitle: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
   short_description: z.string().nullable().optional(),
   bullets_json: z.array(BulletSchema).nullable().optional(),
@@ -115,6 +114,11 @@ export default defineMiddlewares({
     // Product content CRUD
     {
       matcher: '/admin/pim/products/:id/content',
+      method: 'GET',
+      middlewares: [validateAndTransformQuery(GetContentQuerySchema, {})],
+    },
+    {
+      matcher: '/store/products/:id/content',
       method: 'GET',
       middlewares: [validateAndTransformQuery(GetContentQuerySchema, {})],
     },

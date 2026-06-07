@@ -4,14 +4,15 @@ import type PimModuleService from '../../../../../modules/pim/service'
 
 const PUBLISHED_STATUS = 'published'
 const SAFE_STATUSES = [PUBLISHED_STATUS]
-const DEFAULT_LOCALE = process.env.PIM_DEFAULT_LOCALE ?? 'en'
 const DEFAULT_CHANNEL = process.env.PIM_DEFAULT_CHANNEL ?? 'storefront'
 
 // GET /store/products/:id/content?locale=fr&channel=storefront
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const { id: product_id } = req.params
-  const locale = (req.query.locale as string) || DEFAULT_LOCALE
-  const channel = (req.query.channel as string) || DEFAULT_CHANNEL
+  const queryLocale = (req.validatedQuery as any)?.locale || (req as any).locale || (req.query?.locale as string)
+  const locale = queryLocale || 'en'
+  const queryChannel = (req.validatedQuery as any)?.channel || (req.query?.channel as string)
+  const channel = queryChannel || DEFAULT_CHANNEL
 
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
 
@@ -20,7 +21,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const { data: products } = await query.graph({
     entity: 'product',
     filters: { id: product_id },
-    fields: ['id', 'title', 'subtitle', 'description', 'handle', 'metadata'],
+    fields: ['id', 'title', 'description', 'handle', 'metadata'],
   })
 
   const product = products[0] as Record<string, unknown> | undefined
@@ -28,14 +29,10 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   // Resolution order:
   // 1. published for requested locale + requested channel
   // 2. published for requested locale + default channel
-  // 3. published for default locale + requested channel
-  // 4. published for default locale + default channel
-  // 5. Medusa native fallback
+  // 3. Medusa native fallback
   const candidates = [
     { locale, channel },
     { locale, channel: DEFAULT_CHANNEL },
-    { locale: DEFAULT_LOCALE, channel },
-    { locale: DEFAULT_LOCALE, channel: DEFAULT_CHANNEL },
   ]
 
   let resolved: Record<string, unknown> | null = null
@@ -57,6 +54,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     }
   }
 
+  console.log('[PIM Store GET] resolved record:', resolved)
+
   if (!resolved) {
     // Medusa native fallback — only expose storefront-safe fields
     res.json({
@@ -65,7 +64,6 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
         locale,
         channel,
         title: product?.title ?? null,
-        subtitle: product?.subtitle ?? null,
         description: product?.description ?? null,
         short_description: null,
         bullets: null,
@@ -85,7 +83,6 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       locale: resolved.locale,
       channel: resolved.channel,
       title: resolved.title ?? null,
-      subtitle: resolved.subtitle ?? null,
       description: resolved.description ?? null,
       short_description: resolved.short_description ?? null,
       bullets: (resolved.bullets_json as unknown[]) ?? null,
