@@ -3,7 +3,7 @@ import {
   validateAndTransformBody,
   validateAndTransformQuery,
 } from '@medusajs/framework/http'
-import { z } from 'zod'
+import { z } from '@medusajs/framework/zod'
 import { createFindParams } from '@medusajs/medusa/api/utils/validators'
 
 // ─── Body schemas ──────────────────────────────────────────────────────────
@@ -29,8 +29,8 @@ export const UpsertContentSchema = z.object({
   short_description: z.string().nullable().optional(),
   bullets_json: z.array(BulletSchema).nullable().optional(),
   specifications_json: z.array(SpecSchema).nullable().optional(),
-  seo_json: z.record(z.unknown()).nullable().optional(),
-  custom_metadata_json: z.record(z.unknown()).nullable().optional(),
+  seo_json: z.record(z.string(), z.unknown()).nullable().optional(),
+  custom_metadata_json: z.record(z.string(), z.unknown()).nullable().optional(),
   change_reason: z.string().optional(),
 })
 export type UpsertContentSchema = z.infer<typeof UpsertContentSchema>
@@ -55,7 +55,7 @@ export const UpdateMetadataSchema = z.object({
   scope: z.enum(['product', 'content']),
   locale: z.string().optional(),
   channel: z.string().optional(),
-  metadata: z.record(z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
 })
 export type UpdateMetadataSchema = z.infer<typeof UpdateMetadataSchema>
 
@@ -73,7 +73,7 @@ export const CreateMetadataFieldSchema = z.object({
   visible_in_admin: z.boolean().optional(),
   visible_in_storefront: z.boolean().optional(),
   write_policy: z.enum(['admin', 'agent', 'system']).optional(),
-  validation_json: z.record(z.unknown()).nullable().optional(),
+  validation_json: z.record(z.string(), z.unknown()).nullable().optional(),
   sort_order: z.number().optional(),
 })
 export type CreateMetadataFieldSchema = z.infer<typeof CreateMetadataFieldSchema>

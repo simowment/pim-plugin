@@ -260,7 +260,7 @@ function ProductsTab() {
   const canPublish = activeContent && ['draft', 'ai_generated', 'reviewed'].includes(activeContent.status)
 
   return (
-    <div className="mt-4 grid grid-cols-[minmax(18rem,0.35fr)_minmax(0,0.65fr)] gap-4">
+    <div className="mt-4 grid grid-cols-1 lg:grid-cols-[minmax(18rem,0.35fr)_minmax(0,0.65fr)] gap-4">
       <Container className="overflow-hidden">
         <div className="border-b border-ui-border-base px-6 py-4">
           <Text size="small" weight="plus">
@@ -366,9 +366,9 @@ function ProductsTab() {
         ) : contentQuery.isLoading ? (
           <LoadingState />
         ) : (
-          <div className="grid grid-cols-[minmax(0,1fr)_16rem] gap-0">
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_16rem] gap-0">
             <div className="space-y-4 px-6 py-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Field label="Title">
                   <Input
                     value={form.title}
@@ -389,7 +389,7 @@ function ProductsTab() {
                   onChange={(event) => setForm({ ...form, description: event.target.value })}
                 />
               </Field>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Field label="SEO title">
                   <Input
                     value={form.seo_title}
@@ -560,7 +560,7 @@ function MetadataFieldsTab() {
 
       {showForm && (
         <div className="space-y-3 border-b border-ui-border-base bg-ui-bg-subtle px-6 py-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="Key">
               <Input
                 placeholder="material"
