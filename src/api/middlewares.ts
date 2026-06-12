@@ -51,6 +51,14 @@ export const GenerateContentSchema = z.object({
 })
 export type GenerateContentSchema = z.infer<typeof GenerateContentSchema>
 
+export const UpdatePimAiSettingsSchema = z.object({
+  provider: z.string().min(1).optional(),
+  api_key: z.string().min(1).optional(),
+  base_url: z.string().url().optional(),
+  model: z.string().min(1).optional(),
+})
+export type UpdatePimAiSettingsSchema = z.infer<typeof UpdatePimAiSettingsSchema>
+
 export const UpdateMetadataSchema = z.object({
   scope: z.enum(['product', 'content']),
   locale: z.string().optional(),
@@ -96,6 +104,14 @@ export const ListContentQuerySchema = createFindParams().merge(
   }),
 )
 
+export const ListJobsQuerySchema = createFindParams().merge(
+  z.object({
+    status: z.string().optional(),
+    type: z.string().optional(),
+    product_id: z.string().optional(),
+  }),
+)
+
 export const GetContentQuerySchema = z.object({
   locale: z.string().optional(),
   channel: z.string().optional(),
@@ -110,6 +126,12 @@ export default defineMiddlewares({
       matcher: '/admin/pim/content',
       method: 'GET',
       middlewares: [validateAndTransformQuery(ListContentQuerySchema, { isList: true, defaults: ['id', 'product_id', 'locale', 'channel', 'status', 'title', 'updated_at'] })],
+    },
+    // List jobs
+    {
+      matcher: '/admin/pim/jobs',
+      method: 'GET',
+      middlewares: [validateAndTransformQuery(ListJobsQuerySchema, { isList: true, defaults: ['id', 'type', 'product_id', 'locale', 'status', 'created_at'] })],
     },
     // Product content CRUD
     {
@@ -136,6 +158,11 @@ export default defineMiddlewares({
       matcher: '/admin/pim/products/:id/generate',
       method: 'POST',
       middlewares: [validateAndTransformBody(GenerateContentSchema)],
+    },
+    {
+      matcher: '/admin/pim/ai-settings',
+      method: 'POST',
+      middlewares: [validateAndTransformBody(UpdatePimAiSettingsSchema)],
     },
     {
       matcher: '/admin/pim/products/:id/metadata',

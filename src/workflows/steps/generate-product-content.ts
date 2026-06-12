@@ -5,6 +5,7 @@ import type PimModuleService from '../../modules/pim/service'
 
 const GENERATION_MODES = ['translate', 'rewrite', 'extract_specs', 'seo', 'full'] as const
 const TONES = ['neutral', 'luxury', 'technical', 'seo'] as const
+const JSON_CONTENT_TYPE = 'application/json'
 
 export type GenerateContentInput = {
   product_id: string
@@ -20,6 +21,10 @@ export type GenerateContentInput = {
   ai_api_key?: string
   ai_base_url?: string
   ai_model?: string
+  ai_temperature?: number
+  ai_max_tokens?: number
+  ai_request_timeout_ms?: number
+  ai_headers?: Record<string, string>
 }
 
 export type GenerateContentOutput = {
@@ -69,10 +74,14 @@ export const callAiProviderStep = createStep(
       ai_api_key: string
       ai_base_url: string
       ai_model: string
+      ai_temperature: number
+      ai_max_tokens: number
+      ai_request_timeout_ms: number
+      ai_headers: Record<string, string>
     },
     { container },
   ) => {
-    const logger = container.resolve<{ info: (message: string) => void }>('logger')
+    const logger = container.resolve<{ info: (message: string) => void; error: (message: string) => void }>('logger')
 
     if (!input.ai_api_key) {
       throw new MedusaError(
@@ -86,22 +95,40 @@ export const callAiProviderStep = createStep(
     const systemPrompt = buildSystemPrompt(input.mode, input.tone)
     const userPrompt = buildUserPrompt(input.mode, input.existing_content)
 
-    const response = await fetch(`${input.ai_base_url}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${input.ai_api_key}`,
-      },
-      body: JSON.stringify({
-        model: input.ai_model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.4,
-      }),
-    })
+    const abortController = new AbortController()
+    const timeout = setTimeout(() => abortController.abort(), input.ai_request_timeout_ms)
+    let response: Response
+    try {
+      response = await fetch(`${input.ai_base_url}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          ...input.ai_headers,
+          'Content-Type': JSON_CONTENT_TYPE,
+          Authorization: `Bearer ${input.ai_api_key}`,
+        },
+        body: JSON.stringify({
+          model: input.ai_model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          response_format: { type: 'json_object' },
+          temperature: input.ai_temperature,
+          max_tokens: input.ai_max_tokens,
+        }),
+        signal: abortController.signal,
+      })
+    } catch (error) {
+      logger.error(
+        `[PIM] AI provider request failed provider=${input.ai_provider} base_url=${input.ai_base_url} model=${input.ai_model}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      throw new MedusaError(
+        MedusaError.Types.UNEXPECTED_STATE,
+        `AI provider request failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    } finally {
+      clearTimeout(timeout)
+    }
 
     if (!response.ok) {
       const errorText = await response.text()
@@ -111,11 +138,32 @@ export const callAiProviderStep = createStep(
       )
     }
 
-    const data = (await response.json()) as { choices: Array<{ message: { content: string } }> }
+    const responseBody = await response.text()
+    let data: { choices?: Array<{ message?: { content?: string } }> }
+    try {
+      data = JSON.parse(responseBody) as typeof data
+    } catch {
+      logger.error(`[PIM] AI response is not valid JSON: ${responseBody.slice(0, 500)}`)
+      throw new MedusaError(
+        MedusaError.Types.UNEXPECTED_STATE,
+        'AI provider returned invalid JSON response',
+      )
+    }
+
     const raw = data.choices?.[0]?.message?.content
 
     if (!raw) {
-      throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, 'AI provider returned empty response')
+      const hasChoices = data.choices && data.choices.length > 0
+      const finishReason = data.choices?.[0] && 'finish_reason' in data.choices[0]
+        ? (data.choices[0] as Record<string, unknown>).finish_reason
+        : 'unknown'
+      logger.error(
+        `[PIM] AI returned empty content: choices=${data.choices?.length ?? 0} finish_reason=${finishReason} body_preview=${responseBody.slice(0, 300)}`,
+      )
+      throw new MedusaError(
+        MedusaError.Types.UNEXPECTED_STATE,
+        `AI provider returned empty content (finish_reason=${finishReason}, has_choices=${hasChoices}). Check model "${input.ai_model}" supports JSON output.`,
+      )
     }
 
     const generated = JSON.parse(raw) as Record<string, unknown>

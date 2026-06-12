@@ -24,6 +24,10 @@ export type GenerateProductContentInput = {
   ai_api_key?: string
   ai_base_url?: string
   ai_model?: string
+  ai_temperature?: number
+  ai_max_tokens?: number
+  ai_request_timeout_ms?: number
+  ai_headers?: Record<string, string>
   // Existing content to enrich (pre-fetched by route)
   existing_content?: Record<string, unknown> | null
 }
@@ -57,6 +61,10 @@ export const generateProductContentWorkflow: any = createWorkflow(
       ai_api_key: input.ai_api_key ?? '',
       ai_base_url: input.ai_base_url ?? 'https://openrouter.ai/api/v1',
       ai_model: input.ai_model ?? 'openai/gpt-4o-mini',
+      ai_temperature: input.ai_temperature ?? 0.4,
+      ai_max_tokens: input.ai_max_tokens ?? 1200,
+      ai_request_timeout_ms: input.ai_request_timeout_ms ?? 30000,
+      ai_headers: input.ai_headers ?? {},
     }))
     const generated = callAiProviderStep(aiInput)
 

@@ -4,6 +4,7 @@ import { generateProductContentWorkflow } from '../../../../../../workflows/gene
 import { PIM_MODULE } from '../../../../../../modules/pim'
 import type PimModuleService from '../../../../../../modules/pim/service'
 import type { GenerateContentSchema } from '../../../../../middlewares'
+import { resolvePimAiConfigFromContainer } from '../../../../../../lib/ai-config'
 
 // POST /admin/pim/products/:id/generate
 export async function POST(
@@ -35,25 +36,17 @@ export async function POST(
     { take: 1 },
   )
 
-  // Read AI config from environment — the route pulls these server-side so keys never reach the client
-  const aiConfig = {
-    ai_provider: process.env.PIM_AI_PROVIDER ?? 'openrouter',
-    ai_api_key:
-      process.env.PIM_AI_API_KEY ??
-      process.env.OPENROUTER_API_KEY ??
-      process.env.KILOCODE_API_KEY ??
-      '',
-    ai_base_url:
-      process.env.PIM_AI_BASE_URL ??
-      process.env.AI_GATEWAY_URL ??
-      'https://openrouter.ai/api/v1',
-    ai_model: process.env.PIM_AI_MODEL ?? process.env.AI_MODEL ?? 'openai/gpt-4o-mini',
-  }
+  const aiConfig = await resolvePimAiConfigFromContainer(req.scope)
 
-  if (!aiConfig.ai_api_key) {
+  const logger = req.scope.resolve<{ info: (msg: string) => void; warn: (msg: string) => void }>('logger')
+  logger.info(
+    `[PIM Generate] provider=${aiConfig.provider} model=${aiConfig.model} base_url=${aiConfig.base_url} has_key=${Boolean(aiConfig.api_key)} headers=${Object.keys(aiConfig.headers ?? {}).join(',')}`,
+  )
+
+  if (!aiConfig.api_key) {
     throw new MedusaError(
       MedusaError.Types.INVALID_DATA,
-      'AI provider is not configured. Set PIM_AI_API_KEY, OPENROUTER_API_KEY, or KILOCODE_API_KEY in your environment.',
+      'AI provider is not configured. Set PIM ai.api_key module option or PIM_AI_API_KEY in your environment.',
     )
   }
 
@@ -63,7 +56,14 @@ export async function POST(
       product_id,
       created_by: actor_id,
       existing_content: (existing[0] as unknown as Record<string, unknown>) ?? null,
-      ...aiConfig,
+      ai_provider: aiConfig.provider,
+      ai_api_key: aiConfig.api_key,
+      ai_base_url: aiConfig.base_url,
+      ai_model: aiConfig.model,
+      ai_temperature: aiConfig.temperature,
+      ai_max_tokens: aiConfig.max_tokens,
+      ai_request_timeout_ms: aiConfig.request_timeout_ms,
+      ai_headers: aiConfig.headers,
     },
   })
 
