@@ -1,17 +1,22 @@
 import { MedusaRequest, MedusaResponse } from '@medusajs/framework/http'
 import { PIM_MODULE } from '../../../../../modules/pim'
 import type PimModuleService from '../../../../../modules/pim/service'
+import {
+  normalizeSupplierSpecifications,
+  resolveBestPimContentRecord,
+} from '../../../../../lib/specifications'
 
 const PUBLISHED_STATUS = 'published'
-const SAFE_STATUSES = [PUBLISHED_STATUS]
 const DEFAULT_CHANNEL = process.env.PIM_DEFAULT_CHANNEL ?? 'storefront'
 
 // GET /store/products/:id/content?locale=fr&channel=storefront
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const { id: product_id } = req.params
-  const queryLocale = (req.validatedQuery as any)?.locale || (req as any).locale || (req.query?.locale as string)
+  const { locale: queryLocale, channel: queryChannel } = req.validatedQuery as {
+    locale?: string
+    channel?: string
+  }
   const locale = queryLocale || 'en'
-  const queryChannel = (req.validatedQuery as any)?.channel || (req.query?.channel as string)
   const channel = queryChannel || DEFAULT_CHANNEL
 
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
@@ -26,37 +31,32 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
 
   const product = products[0] as Record<string, unknown> | undefined
 
-  // Resolution order:
-  // 1. published for requested locale + requested channel
-  // 2. published for requested locale + default channel
-  // 3. Medusa native fallback
-  const candidates = [
-    { locale, channel },
-    { locale, channel: DEFAULT_CHANNEL },
-  ]
+  const [records] = await pim.listAndCountProductContents(
+    {
+      product_id,
+      status: [PUBLISHED_STATUS] as any,
+    },
+    { take: 100, order: { published_at: 'DESC' } },
+  )
 
-  let resolved: Record<string, unknown> | null = null
-
-  for (const candidate of candidates) {
-    const [records] = await pim.listAndCountProductContents(
-      {
-        product_id,
-        locale: candidate.locale,
-        channel: candidate.channel,
-        status: SAFE_STATUSES as any,
-      },
-      { take: 1, order: { published_at: 'DESC' } },
-    )
-
-    if (records.length > 0) {
-      resolved = records[0] as unknown as Record<string, unknown>
-      break
-    }
-  }
-
-  console.log('[PIM Store GET] resolved record:', resolved)
+  const resolved = resolveBestPimContentRecord(
+    records as unknown as Array<Record<string, unknown>>,
+    {
+      locale,
+      channel,
+      defaultChannel: DEFAULT_CHANNEL,
+      statuses: [PUBLISHED_STATUS],
+      preferSpecifications: true,
+    },
+  )
 
   if (!resolved) {
+    const metadata =
+      product?.metadata && typeof product.metadata === 'object'
+        ? (product.metadata as Record<string, unknown>)
+        : {}
+    const supplierSpecifications = normalizeSupplierSpecifications(metadata.attributes)
+
     // Medusa native fallback — only expose storefront-safe fields
     res.json({
       content: {
@@ -67,9 +67,9 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
         description: product?.description ?? null,
         short_description: null,
         bullets: null,
-        specifications: null,
+        specifications: supplierSpecifications.length > 0 ? supplierSpecifications : null,
         seo: null,
-        metadata: product?.metadata ?? null,
+        metadata: null,
         source: 'medusa_fallback',
       },
     })

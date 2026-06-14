@@ -4,6 +4,10 @@ import { PIM_MODULE } from '../../../../../../modules/pim'
 import type PimModuleService from '../../../../../../modules/pim/service'
 import { createOrUpdateProductContentWorkflow } from '../../../../../../workflows/create-or-update-product-content'
 import type { UpsertContentSchema } from '../../../../../middlewares'
+import {
+  filterPimContentRecords,
+  normalizeSupplierSpecifications,
+} from '../../../../../../lib/specifications'
 
 // GET /admin/pim/products/:id/content?locale=fr&channel=storefront
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
@@ -12,14 +16,31 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const { locale, channel } = req.validatedQuery as { locale?: string; channel?: string }
 
   const filters: Record<string, unknown> = { product_id }
-  if (locale) filters.locale = locale
   if (channel) filters.channel = channel
 
-  const [contents] = await pim.listAndCountProductContents(filters, {
+  const [records] = await pim.listAndCountProductContents(filters, {
     order: { updated_at: 'DESC' },
   })
+  const contents = locale
+    ? filterPimContentRecords(records as unknown as Array<Record<string, unknown>>, { locale })
+    : records
 
-  res.json({ content: contents })
+  const query = req.scope.resolve('query')
+  const { data: products } = await query.graph({
+    entity: 'product',
+    filters: { id: product_id },
+    fields: ['id', 'metadata'],
+  })
+  const product = products[0] as Record<string, unknown> | undefined
+  const metadata =
+    product?.metadata && typeof product.metadata === 'object'
+      ? (product.metadata as Record<string, unknown>)
+      : {}
+
+  res.json({
+    content: contents,
+    supplier_specifications: normalizeSupplierSpecifications(metadata.attributes),
+  })
 }
 
 // POST /admin/pim/products/:id/content — create or update draft

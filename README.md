@@ -4,7 +4,7 @@ Medusa v2 plugin for lightweight Product Information Management (PIM) — produc
 
 ## Features
 
-- Multi-locale product content management per product with locale+channel granularity (title, subtitle, description, short description, bullet points).
+- Multi-locale product content management per product with locale+channel granularity (title, description, short description, bullet points).
 - Structured specification engine with typed key/value/unit/group schemas.
 - SEO metadata management (title, description, keywords) per locale/channel.
 - Custom metadata field definitions with configurable types (string, text, number, boolean, select, multiselect, json, url), scopes (product, variant, content), write policies, and per-field visibility flags.
@@ -23,14 +23,16 @@ Add the plugin to your Medusa project:
 
 ```bash
 # pnpm
-pnpm add <path-to-medusa-plugin-pim>
+pnpm add @medusastore/medusa-plugin-pim
 
 # npm
-npm install <path-to-medusa-plugin-pim>
+npm install @medusastore/medusa-plugin-pim
 
 # bun
-bun add <path-to-medusa-plugin-pim>
+bun add @medusastore/medusa-plugin-pim
 ```
+
+For local development, install from a local checkout path instead.
 
 ## Configuration
 
@@ -58,7 +60,14 @@ Common optional values:
 - `PIM_AI_PROVIDER` — AI provider name (default: `openrouter`).
 - `PIM_AI_BASE_URL` — Base URL for AI API (default: `https://openrouter.ai/api/v1`, alternatively `AI_GATEWAY_URL`).
 - `PIM_AI_MODEL` — Model identifier (default: `openai/gpt-4o-mini`, alternatively `AI_MODEL`).
+- `PIM_AI_TEMPERATURE` — Generation temperature (default: `0.4`).
+- `PIM_AI_MAX_TOKENS` — Maximum response tokens (default: `1200`).
+- `PIM_AI_REQUEST_TIMEOUT_MS` — AI request timeout in milliseconds (default: `30000`).
+- `PIM_AI_HEADERS_JSON` — Optional JSON object of extra headers for OpenAI-compatible gateways.
+- `PIM_AI_GATEWAY_MODULE` — Optional Medusa module registration name for a compatible runtime AI gateway (defaults to probing `pimAi` and `aiGateway`).
 - `PIM_DEFAULT_CHANNEL` — Content channel used when none is specified (default: `storefront`).
+
+Runtime AI settings in the admin UI are read from `PIM_AI_*` environment variables by default. If your Medusa project registers a compatible AI gateway service, the settings form becomes writable; otherwise it is read-only and generation still works from environment configuration.
 
 ## Database
 
@@ -80,7 +89,7 @@ The plugin creates four tables:
 Seed default metadata field definitions (material, style, room, care instructions, etc.):
 
 ```bash
-npx medusa exec ./src/scripts/bootstrap-pim.ts
+npx medusa exec ./node_modules/@medusastore/medusa-plugin-pim/.medusa/server/scripts/bootstrap-pim.js
 ```
 
 Safe to run multiple times — skips existing fields.
@@ -95,7 +104,7 @@ Safe to run multiple times — skips existing fields.
 | `GET` | `/admin/pim/content/:id` | Retrieve a single content record |
 | `DELETE` | `/admin/pim/content/:id` | Archive (soft-delete) a content record |
 | `GET` | `/admin/pim/products/:id/content` | Get content for a product by `locale` and `channel` |
-| `POST` | `/admin/pim/products/:id/content` | Create or update draft content (title, subtitle, description, short_description, bullets_json, specifications_json, seo_json, custom_metadata_json) |
+| `POST` | `/admin/pim/products/:id/content` | Create or update draft content (title, description, short_description, bullets_json, specifications_json, seo_json, custom_metadata_json) |
 | `POST` | `/admin/pim/products/:id/publish` | Publish a content record (archives previous published version) |
 | `POST` | `/admin/pim/products/:id/generate` | Trigger AI generation (translate, rewrite, extract_specs, seo, full) |
 | `POST` | `/admin/pim/products/:id/metadata` | Sync validated metadata to a content draft |
@@ -116,7 +125,7 @@ Safe to run multiple times — skips existing fields.
 
 After registration, open the Medusa Admin and navigate to the **PIM** page. The interface is organized in three tabs:
 
-- **Product Content** — Select a product, choose a locale and channel, edit enriched fields (title, subtitle, description, SEO), save drafts, trigger AI translation from English, and publish.
+- **Product Content** — Select a product, choose a locale and channel, edit enriched fields (title, description, SEO), save drafts, trigger AI translation from English, and publish.
 - **AI Jobs** — Overview of generated content records awaiting review.
 - **Metadata Fields** — Define reusable metadata schemas (key, label, type, scope, visibility) and delete existing fields.
 

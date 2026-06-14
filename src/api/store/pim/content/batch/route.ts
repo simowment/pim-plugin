@@ -2,6 +2,7 @@ import { MedusaRequest, MedusaResponse } from '@medusajs/framework/http'
 import { PIM_MODULE } from '../../../../../modules/pim'
 import type PimModuleService from '../../../../../modules/pim/service'
 import type { BatchContentSchema } from '../../../../middlewares'
+import { resolveBestPimContentRecord } from '../../../../../lib/specifications'
 
 const PUBLISHED_STATUS = 'published'
 const DEFAULT_CHANNEL = process.env.PIM_DEFAULT_CHANNEL ?? 'storefront'
@@ -29,20 +30,19 @@ export async function POST(
   const resultMap = new Map<string, Record<string, unknown>>()
 
   for (const productId of product_ids) {
-    // Priority: exact locale+channel → exact locale+default channel
-    const candidates = [
-      { l: locale, c: effectiveChannel },
-      { l: locale, c: DEFAULT_CHANNEL },
-    ]
+    const productRecords = (allRecords as unknown as Array<Record<string, unknown>>).filter(
+      (record) => record.product_id === productId,
+    )
+    const match = resolveBestPimContentRecord(productRecords, {
+      locale,
+      channel: effectiveChannel,
+      defaultChannel: DEFAULT_CHANNEL,
+      statuses: [PUBLISHED_STATUS],
+      preferSpecifications: true,
+    })
 
-    for (const { l, c } of candidates) {
-      const match = (allRecords as unknown as Array<Record<string, unknown>>).find(
-        (r) => r.product_id === productId && r.locale === l && r.channel === c,
-      )
-      if (match) {
-        resultMap.set(productId, match)
-        break
-      }
+    if (match) {
+      resultMap.set(productId, match)
     }
   }
 

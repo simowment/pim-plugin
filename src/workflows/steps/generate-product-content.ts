@@ -92,7 +92,7 @@ export const callAiProviderStep = createStep(
 
     logger.info(`[PIM] Calling AI provider for product=${input.product_id} locale=${input.locale} mode=${input.mode}`)
 
-    const systemPrompt = buildSystemPrompt(input.mode, input.tone)
+    const systemPrompt = buildSystemPrompt(input.mode, input.tone, input.locale)
     const userPrompt = buildUserPrompt(input.mode, input.existing_content)
 
     const abortController = new AbortController()
@@ -196,7 +196,7 @@ export const finalizeJobStep = createStep(
 
 // ─── prompt helpers ────────────────────────────────────────────────────────
 
-function buildSystemPrompt(mode: string, tone: string): string {
+function buildSystemPrompt(mode: string, tone: string, locale: string): string {
   const toneDesc =
     tone === 'luxury'
       ? 'Premium, aspirational, evocative language.'
@@ -207,7 +207,8 @@ function buildSystemPrompt(mode: string, tone: string): string {
           : 'Clear, informative, neutral language.'
 
   const modeDesc: Record<string, string> = {
-    translate: 'Translate the provided product content to the target locale. Preserve meaning exactly.',
+    translate:
+      'Translate the provided product content to the target locale. Preserve specification keys, meaning, measurements, model numbers, and certification names exactly. Translate specification labels and natural-language values.',
     rewrite: 'Rewrite the product content to be engaging and clear.',
     extract_specs: 'Extract structured specifications from the description as JSON array.',
     seo: 'Generate SEO metadata (title, description, keywords) from the product content.',
@@ -215,6 +216,7 @@ function buildSystemPrompt(mode: string, tone: string): string {
   }
 
   return `You are a professional e-commerce content writer. ${modeDesc[mode] ?? modeDesc.full}
+Target locale: ${locale}.
 Tone: ${toneDesc}
 Respond with a single JSON object containing only the fields you generated.
 Fields may include: title, description, short_description, bullets_json (array), specifications_json (array of {key,label,value,unit,group}), seo_json ({title,description,keywords}).`

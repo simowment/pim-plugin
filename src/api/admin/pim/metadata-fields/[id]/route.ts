@@ -2,6 +2,8 @@ import { AuthenticatedMedusaRequest, MedusaResponse } from '@medusajs/framework/
 import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../../../../modules/pim'
 import type PimModuleService from '../../../../../modules/pim/service'
+import { deleteMetadataFieldWorkflow } from '../../../../../workflows/delete-metadata-field'
+import { updateMetadataFieldWorkflow } from '../../../../../workflows/update-metadata-field'
 import type { CreateMetadataFieldSchema } from '../../../../middlewares'
 
 // GET /admin/pim/metadata-fields/:id
@@ -19,17 +21,21 @@ export async function POST(
   req: AuthenticatedMedusaRequest<Partial<CreateMetadataFieldSchema>>,
   res: MedusaResponse,
 ) {
-  const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
-  const updated = await pim.updateProductMetadataFields({
-    id: req.params.id,
-    ...(req.validatedBody as any),
+  const { result: updated } = await updateMetadataFieldWorkflow(req.scope).run({
+    input: {
+      id: req.params.id,
+      ...req.validatedBody,
+    },
   })
+
   res.json({ metadata_field: updated })
 }
 
 // DELETE /admin/pim/metadata-fields/:id
 export async function DELETE(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
-  const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
-  await pim.deleteProductMetadataFields(req.params.id)
-  res.json({ id: req.params.id, deleted: true })
+  const { result } = await deleteMetadataFieldWorkflow(req.scope).run({
+    input: { id: req.params.id },
+  })
+
+  res.json(result)
 }

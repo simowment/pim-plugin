@@ -63,6 +63,11 @@ type PimContent = {
   updated_at: string
 }
 
+type ProductContentResponse = {
+  content: PimContent[]
+  supplier_specifications: Specification[]
+}
+
 type MetadataField = {
   id: string
   key: string
@@ -103,6 +108,8 @@ type PimAiSettings = {
   request_timeout_ms: number
   has_api_key: boolean
   api_key_preview: string
+  can_update: boolean
+  source: 'gateway' | 'environment'
 }
 
 const DEFAULT_LOCALES = ['en', 'fr', 'es', 'de', 'nl', 'it', 'pt']
@@ -200,7 +207,7 @@ function ProductsTab() {
   // AI Generation configuration
   const [aiMode, setAiMode] = useState<'translate' | 'rewrite' | 'extract_specs' | 'seo' | 'full'>('translate')
   const [aiTone, setAiTone] = useState<'neutral' | 'luxury' | 'technical' | 'seo'>('neutral')
-  const [aiSourceLocale, setAiSourceLocale] = useState('en')
+  const [aiSourceLocale, setAiSourceLocale] = useState('fr')
   const [editorTab, setEditorTab] = useState<'copy' | 'specs' | 'seo_ai'>('copy')
 
   // Fetch sales channels dynamically
@@ -261,7 +268,7 @@ function ProductsTab() {
   const contentQuery = useQuery({
     queryKey: ['pim-product-content', selectedProductId, locale, channel],
     queryFn: () =>
-      sdk.client.fetch<{ content: PimContent[] }>(
+      sdk.client.fetch<ProductContentResponse>(
         `/admin/pim/products/${selectedProductId}/content?locale=${locale}&channel=${channel}`
       ),
     enabled: Boolean(selectedProductId),
@@ -278,6 +285,10 @@ function ProductsTab() {
 
   const activeContent = contentQuery.data?.content?.find((content) => content.status !== 'archived')
     ?? contentQuery.data?.content?.[0]
+  const displayedSpecifications =
+    activeContent?.specifications_json?.length
+      ? activeContent.specifications_json
+      : (contentQuery.data?.supplier_specifications ?? [])
 
   // Detect draft dirtiness
   const isDirty = useMemo(() => {
@@ -292,7 +303,7 @@ function ProductsTab() {
       : ''
 
     const initialBullets = activeContent?.bullets_json ?? []
-    const initialSpecs = activeContent?.specifications_json ?? []
+    const initialSpecs = displayedSpecifications
     const initialMetadata = activeContent?.custom_metadata_json ?? {}
 
     if (form.title !== initialTitle) return true
@@ -307,7 +318,7 @@ function ProductsTab() {
     if (JSON.stringify(form.custom_metadata_json) !== JSON.stringify(initialMetadata)) return true
 
     return false
-  }, [form, activeContent, selectedProduct])
+  }, [form, activeContent, selectedProduct, displayedSpecifications])
 
   useEffect(() => {
     setForm({
@@ -315,7 +326,7 @@ function ProductsTab() {
       short_description: activeContent?.short_description ?? '',
       description: activeContent?.description ?? selectedProduct?.description ?? '',
       bullets_json: activeContent?.bullets_json ?? [],
-      specifications_json: activeContent?.specifications_json ?? [],
+      specifications_json: displayedSpecifications,
       seo_title: String(activeContent?.seo_json?.title ?? ''),
       seo_description: String(activeContent?.seo_json?.description ?? ''),
       seo_keywords: Array.isArray(activeContent?.seo_json?.keywords)
@@ -324,7 +335,7 @@ function ProductsTab() {
       custom_metadata_json: activeContent?.custom_metadata_json ?? {},
       change_reason: '',
     })
-  }, [activeContent?.id, selectedProductId, locale, channel])
+  }, [activeContent?.id, selectedProductId, locale, channel, contentQuery.data?.supplier_specifications])
 
   const confirmSwitch = () => {
     if (isDirty) {
@@ -1110,6 +1121,7 @@ function AiSettingsTab() {
   })
 
   const settings = settingsQuery.data?.settings
+  const canUpdateSettings = Boolean(settings?.can_update)
 
   return (
     <Container className="mt-4 overflow-hidden">
@@ -1118,7 +1130,7 @@ function AiSettingsTab() {
           PIM AI Gateway
         </Text>
         <Text size="small" leading="compact" className="text-ui-fg-subtle">
-          Configure the shared LLM gateway used by PIM generation. These values are stored server-side and never sent to product-generation requests from the browser.
+          Configure the LLM gateway used by PIM generation. When no writable gateway service is registered, these values are read from server-side PIM_AI_* environment variables.
         </Text>
       </div>
 
@@ -1193,10 +1205,10 @@ function AiSettingsTab() {
               <Button
                 size="small"
                 isLoading={saveMutation.isPending}
-                disabled={saveMutation.isPending || !form.provider || !form.model || !form.base_url}
+                disabled={!canUpdateSettings || saveMutation.isPending || !form.provider || !form.model || !form.base_url}
                 onClick={() => saveMutation.mutate()}
               >
-                Save AI Settings
+                {canUpdateSettings ? 'Save AI Settings' : 'Configured by Environment'}
               </Button>
             </div>
           </div>
@@ -1206,6 +1218,7 @@ function AiSettingsTab() {
               Current gateway
             </Text>
             <SettingsRow label="Provider" value={settings?.provider} />
+            <SettingsRow label="Source" value={settings?.source === 'gateway' ? 'Gateway service' : 'Environment variables'} />
             <SettingsRow label="Model" value={settings?.model} />
             <SettingsRow label="Base URL" value={settings?.base_url} />
             <SettingsRow label="API key" value={settings?.has_api_key ? `✓ ${settings.api_key_preview}` : '✗ Not configured'} />

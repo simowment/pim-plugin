@@ -5,6 +5,11 @@ import {
 } from '@medusajs/framework/http'
 import { z } from '@medusajs/framework/zod'
 import { createFindParams } from '@medusajs/medusa/api/utils/validators'
+import {
+  METADATA_FIELD_SCOPES,
+  METADATA_FIELD_TYPES,
+  METADATA_FIELD_WRITE_POLICIES,
+} from '../lib/metadata-fields'
 
 // ─── Body schemas ──────────────────────────────────────────────────────────
 
@@ -71,8 +76,8 @@ export const CreateMetadataFieldSchema = z.object({
   key: z.string().min(1),
   label: z.string().min(1),
   description: z.string().nullable().optional(),
-  type: z.enum(['string', 'text', 'number', 'boolean', 'select', 'multiselect', 'json', 'url']).optional(),
-  scope: z.enum(['product', 'variant', 'content']).optional(),
+  type: z.enum(METADATA_FIELD_TYPES).optional(),
+  scope: z.enum(METADATA_FIELD_SCOPES).optional(),
   group: z.string().nullable().optional(),
   options_json: z.array(z.object({ label: z.string(), value: z.string() })).nullable().optional(),
   required: z.boolean().optional(),
@@ -80,7 +85,7 @@ export const CreateMetadataFieldSchema = z.object({
   channel_specific: z.boolean().optional(),
   visible_in_admin: z.boolean().optional(),
   visible_in_storefront: z.boolean().optional(),
-  write_policy: z.enum(['admin', 'agent', 'system']).optional(),
+  write_policy: z.enum(METADATA_FIELD_WRITE_POLICIES).optional(),
   validation_json: z.record(z.string(), z.unknown()).nullable().optional(),
   sort_order: z.number().optional(),
 })

@@ -8,7 +8,7 @@ import {
   createOrUpdateProductContentStep,
   appendContentVersionStep,
 } from './steps/create-or-update-product-content'
-import { PIM_MODULE } from '../modules/pim'
+import { hasUsableSpecifications } from '../lib/specifications'
 
 export type GenerateProductContentInput = {
   product_id: string
@@ -78,21 +78,30 @@ export const generateProductContentWorkflow: any = createWorkflow(
     finalizeJobStep(finalizeInput)
 
     // 4. Save as draft if requested
-    const contentInput = transform({ generated, input }, ({ generated, input }) => ({
-      product_id: input.product_id,
-      locale: input.target_locale,
-      channel: input.channel ?? 'storefront',
-      title: (generated as any).title ?? null,
-      description: (generated as any).description ?? null,
-      short_description: (generated as any).short_description ?? null,
-      bullets_json: (generated as any).bullets_json ?? null,
-      specifications_json: (generated as any).specifications_json ?? null,
-      seo_json: (generated as any).seo_json ?? null,
-      source: 'ai' as const,
-      status: 'ai_generated' as const,
-      created_by: input.created_by ?? null,
-      change_reason: `AI generated (mode=${input.mode})`,
-    }))
+    const contentInput = transform({ generated, input }, ({ generated, input }) => {
+      const generatedSpecs = (generated as any).specifications_json
+      const existingSpecs = input.existing_content?.specifications_json
+
+      return {
+        product_id: input.product_id,
+        locale: input.target_locale,
+        channel: input.channel ?? 'storefront',
+        title: (generated as any).title ?? null,
+        description: (generated as any).description ?? null,
+        short_description: (generated as any).short_description ?? null,
+        bullets_json: (generated as any).bullets_json ?? null,
+        specifications_json: hasUsableSpecifications(generatedSpecs)
+          ? generatedSpecs
+          : hasUsableSpecifications(existingSpecs)
+            ? existingSpecs
+            : null,
+        seo_json: (generated as any).seo_json ?? null,
+        source: 'ai' as const,
+        status: 'ai_generated' as const,
+        created_by: input.created_by ?? null,
+        change_reason: `AI generated (mode=${input.mode})`,
+      }
+    })
 
     const savedContent = when(input, (i) => (i.save_as ?? 'draft') === 'draft').then(() => {
       const content = createOrUpdateProductContentStep(contentInput)

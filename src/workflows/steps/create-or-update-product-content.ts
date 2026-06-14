@@ -1,7 +1,10 @@
 import { createStep, StepResponse } from '@medusajs/framework/workflows-sdk'
-import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
+import {
+  PIM_MUTABLE_STATUSES,
+  resolveBestPimContentRecord,
+} from '../../lib/specifications'
 
 const DRAFT_STATUS = 'draft'
 type ProductContentSource = 'supplier' | 'manual' | 'ai' | 'import' | 'directus' | 'agent'
@@ -38,18 +41,25 @@ export const createOrUpdateProductContentStep = createStep(
 
     const channel = input.channel ?? 'storefront'
 
-    // Find the existing mutable draft for this product/locale/channel
+    // Find the existing mutable draft for this product/language/channel.
     const [existingRecords] = await pim.listAndCountProductContents(
       {
         product_id: input.product_id,
-        locale: input.locale,
         channel,
-        status: [DRAFT_STATUS, 'ai_generated', 'reviewed'] as any,
+        status: [...PIM_MUTABLE_STATUSES] as any,
       },
-      { take: 1 },
+      { take: 100, order: { updated_at: 'DESC' } },
     )
 
-    const existing = existingRecords[0] ?? null
+    const existing = (resolveBestPimContentRecord(
+      existingRecords as unknown as Array<Record<string, unknown>>,
+      {
+        locale: input.locale,
+        channel,
+        defaultChannel: 'storefront',
+        statuses: PIM_MUTABLE_STATUSES,
+      },
+    ) as (Record<string, unknown> & { id: string }) | null) ?? null
     const previousSnapshot: Record<string, unknown> | null = existing
       ? { ...existing }
       : null

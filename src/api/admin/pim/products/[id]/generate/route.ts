@@ -5,6 +5,11 @@ import { PIM_MODULE } from '../../../../../../modules/pim'
 import type PimModuleService from '../../../../../../modules/pim/service'
 import type { GenerateContentSchema } from '../../../../../middlewares'
 import { resolvePimAiConfigFromContainer } from '../../../../../../lib/ai-config'
+import {
+  PIM_ACTIVE_STATUSES,
+  buildPimGenerationSource,
+  resolveBestPimContentRecord,
+} from '../../../../../../lib/specifications'
 
 // POST /admin/pim/products/:id/generate
 export async function POST(
@@ -19,24 +24,36 @@ export async function POST(
   const { data: products } = await query.graph({
     entity: 'product',
     filters: { id: product_id },
-    fields: ['id', 'title', 'description'],
+    fields: ['id', 'title', 'description', 'metadata'],
   })
   if (!products.length) {
     throw new MedusaError(MedusaError.Types.NOT_FOUND, `Product ${product_id} not found`)
   }
 
-  // Fetch existing content for the target locale to enrich rather than overwrite
+  // Fetch existing content for the source language to enrich rather than overwrite.
+  // Locale matching is language-normalized so "fr", "FR_fr", and "fr-FR" share specs.
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
-  const [existing] = await pim.listAndCountProductContents(
+  const [existingRecords] = await pim.listAndCountProductContents(
     {
       product_id,
-      locale: req.validatedBody.source_locale ?? req.validatedBody.target_locale,
-      channel: [req.validatedBody.channel ?? 'storefront', 'default'] as any,
+      status: [...PIM_ACTIVE_STATUSES] as any,
     },
-    { take: 1 },
+    { take: 100, order: { updated_at: 'DESC' } },
   )
 
   const aiConfig = await resolvePimAiConfigFromContainer(req.scope)
+  const sourceProduct = products[0] as Record<string, unknown>
+  const storedContent = resolveBestPimContentRecord(
+    existingRecords as unknown as Array<Record<string, unknown>>,
+    {
+      locale: req.validatedBody.source_locale ?? req.validatedBody.target_locale,
+      channel: req.validatedBody.channel ?? 'storefront',
+      defaultChannel: 'storefront',
+      statuses: PIM_ACTIVE_STATUSES,
+      preferSpecifications: true,
+    },
+  ) ?? undefined
+  const existingContent = buildPimGenerationSource(sourceProduct, storedContent)
 
   const logger = req.scope.resolve<{ info: (msg: string) => void; warn: (msg: string) => void }>('logger')
   logger.info(
@@ -55,7 +72,7 @@ export async function POST(
       ...req.validatedBody,
       product_id,
       created_by: actor_id,
-      existing_content: (existing[0] as unknown as Record<string, unknown>) ?? null,
+      existing_content: existingContent,
       ai_provider: aiConfig.provider,
       ai_api_key: aiConfig.api_key,
       ai_base_url: aiConfig.base_url,
