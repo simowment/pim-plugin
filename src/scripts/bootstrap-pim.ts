@@ -73,7 +73,7 @@ const DEFAULT_FIELDS: Array<{
   {
     key: 'supplier_original_locale',
     label: 'Supplier Original Locale',
-    description: 'Locale of the supplier\'s original content',
+    description: "Locale of the supplier's original content",
     type: 'string',
     scope: 'content',
     group: 'Supplier',

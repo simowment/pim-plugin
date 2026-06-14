@@ -3,11 +3,12 @@ import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 import {
+  INVALID_METADATA_FIELD_KEY_MESSAGE,
   normalizeMetadataFieldData,
   type MetadataFieldData,
 } from '../../lib/metadata-fields'
 
-export type CreateMetadataFieldInput = MetadataFieldData
+export interface CreateMetadataFieldInput extends MetadataFieldData {}
 
 export const createMetadataFieldStep = createStep(
   'create-metadata-field',
@@ -16,16 +17,10 @@ export const createMetadataFieldStep = createStep(
     const data = normalizeMetadataFieldData(input)
 
     if (!data.key) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_DATA,
-        'Metadata field key must contain at least one letter, number, or underscore',
-      )
+      throw new MedusaError(MedusaError.Types.INVALID_DATA, INVALID_METADATA_FIELD_KEY_MESSAGE)
     }
 
-    const [existing] = await pim.listAndCountProductMetadataFields(
-      { key: data.key },
-      { take: 1 },
-    )
+    const [existing] = await pim.listAndCountProductMetadataFields({ key: data.key }, { take: 1 })
 
     if (existing.length > 0) {
       throw new MedusaError(

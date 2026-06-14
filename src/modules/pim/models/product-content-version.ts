@@ -2,7 +2,7 @@ import { model } from '@medusajs/framework/utils'
 
 const ACTOR_TYPES = ['admin', 'agent', 'system']
 
-const ProductContentVersion = model.define('product_content_version', {
+export const ProductContentVersion = model.define('product_content_version', {
   id: model.id().primaryKey(),
   content_id: model.text(), // FK to product_content.id (managed manually — no ORM relation)
   version: model.number(),

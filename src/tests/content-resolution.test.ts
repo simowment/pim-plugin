@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest'
 
 // ─── Inline the resolution logic for isolated unit testing ─────────────────
 
-type ContentRecord = {
+interface ContentRecord {
   id: string
   product_id: string
   locale: string
@@ -26,9 +26,7 @@ function resolveContent(
   defaultLocale = 'en',
   defaultChannel = 'storefront',
 ): ContentRecord | null {
-  const published = records.filter(
-    (r) => r.product_id === productId && r.status === 'published',
-  )
+  const published = records.filter((r) => r.product_id === productId && r.status === 'published')
 
   const candidates = [
     { locale: requestedLocale, channel: requestedChannel },
@@ -92,9 +90,7 @@ describe('Content fallback resolution', () => {
   })
 
   it('returns null when no published content exists', () => {
-    const records = [
-      { ...base, id: 'cnt_1', status: 'draft', title: 'Draft content' },
-    ]
+    const records = [{ ...base, id: 'cnt_1', status: 'draft', title: 'Draft content' }]
     const result = resolveContent(records, 'prod_1', 'en', 'storefront')
     expect(result).toBeNull()
   })
@@ -111,7 +107,14 @@ describe('Content fallback resolution', () => {
 
   it('does not cross product boundaries', () => {
     const records = [
-      { ...base, id: 'cnt_1', product_id: 'prod_2', locale: 'en', channel: 'storefront', title: 'Other product' },
+      {
+        ...base,
+        id: 'cnt_1',
+        product_id: 'prod_2',
+        locale: 'en',
+        channel: 'storefront',
+        title: 'Other product',
+      },
     ]
     const result = resolveContent(records, 'prod_1', 'en', 'storefront')
     expect(result).toBeNull()

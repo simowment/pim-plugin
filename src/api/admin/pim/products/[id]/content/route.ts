@@ -44,7 +44,10 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
 }
 
 // POST /admin/pim/products/:id/content — create or update draft
-export async function POST(req: AuthenticatedMedusaRequest<UpsertContentSchema>, res: MedusaResponse) {
+export async function POST(
+  req: AuthenticatedMedusaRequest<UpsertContentSchema>,
+  res: MedusaResponse,
+) {
   const { id: product_id } = req.params
   const actor_id = req.auth_context.actor_id
 

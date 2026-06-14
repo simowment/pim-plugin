@@ -53,13 +53,14 @@ Copy `.env.example` and fill in your values.
 
 Required for AI content generation:
 
-- `PIM_AI_API_KEY` — API key for the AI provider (alternatively `OPENROUTER_API_KEY` or `KILOCODE_API_KEY`).
+- `PIM_AI_API_KEY` — API key for the AI provider.
+- `PIM_AI_KEY_ENCRYPTION_KEY` — secret used to encrypt admin-managed PIM AI keys at rest. Required before saving AI keys from the Admin UI. Use a long random value and keep it outside source control.
 
 Common optional values:
 
 - `PIM_AI_PROVIDER` — AI provider name (default: `openrouter`).
-- `PIM_AI_BASE_URL` — Base URL for AI API (default: `https://openrouter.ai/api/v1`, alternatively `AI_GATEWAY_URL`).
-- `PIM_AI_MODEL` — Model identifier (default: `openai/gpt-4o-mini`, alternatively `AI_MODEL`).
+- `PIM_AI_BASE_URL` — Base URL for AI API (default: `https://openrouter.ai/api/v1`).
+- `PIM_AI_MODEL` — Model identifier (default: `openai/gpt-4o-mini`).
 - `PIM_AI_TEMPERATURE` — Generation temperature (default: `0.4`).
 - `PIM_AI_MAX_TOKENS` — Maximum response tokens (default: `1200`).
 - `PIM_AI_REQUEST_TIMEOUT_MS` — AI request timeout in milliseconds (default: `30000`).
@@ -67,7 +68,7 @@ Common optional values:
 - `PIM_AI_GATEWAY_MODULE` — Optional Medusa module registration name for a compatible runtime AI gateway (defaults to probing `pimAi` and `aiGateway`).
 - `PIM_DEFAULT_CHANNEL` — Content channel used when none is specified (default: `storefront`).
 
-Runtime AI settings in the admin UI are read from `PIM_AI_*` environment variables by default. If your Medusa project registers a compatible AI gateway service, the settings form becomes writable; otherwise it is read-only and generation still works from environment configuration.
+Runtime AI settings in the admin UI are read from `PIM_AI_*` environment variables by default. Admin-managed keys are encrypted before persistence and require `PIM_AI_KEY_ENCRYPTION_KEY` to save or read persisted secrets. If your Medusa project registers a compatible AI gateway service, the gateway can own key storage instead.
 
 ## Database
 
@@ -98,28 +99,28 @@ Safe to run multiple times — skips existing fields.
 
 ### Admin routes (authenticated)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/admin/pim/content` | List content records (filterable by `product_id`, `locale`, `status`, `channel`) |
-| `GET` | `/admin/pim/content/:id` | Retrieve a single content record |
-| `DELETE` | `/admin/pim/content/:id` | Archive (soft-delete) a content record |
-| `GET` | `/admin/pim/products/:id/content` | Get content for a product by `locale` and `channel` |
-| `POST` | `/admin/pim/products/:id/content` | Create or update draft content (title, description, short_description, bullets_json, specifications_json, seo_json, custom_metadata_json) |
-| `POST` | `/admin/pim/products/:id/publish` | Publish a content record (archives previous published version) |
-| `POST` | `/admin/pim/products/:id/generate` | Trigger AI generation (translate, rewrite, extract_specs, seo, full) |
-| `POST` | `/admin/pim/products/:id/metadata` | Sync validated metadata to a content draft |
-| `GET` | `/admin/pim/metadata-fields` | List all metadata field definitions |
-| `POST` | `/admin/pim/metadata-fields` | Create a metadata field definition |
-| `GET` | `/admin/pim/metadata-fields/:id` | Get a metadata field definition |
-| `POST` | `/admin/pim/metadata-fields/:id` | Update a metadata field definition |
-| `DELETE` | `/admin/pim/metadata-fields/:id` | Delete a metadata field definition |
+| Method   | Path                               | Description                                                                                                                               |
+| -------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/admin/pim/content`               | List content records (filterable by `product_id`, `locale`, `status`, `channel`)                                                          |
+| `GET`    | `/admin/pim/content/:id`           | Retrieve a single content record                                                                                                          |
+| `DELETE` | `/admin/pim/content/:id`           | Archive (soft-delete) a content record                                                                                                    |
+| `GET`    | `/admin/pim/products/:id/content`  | Get content for a product by `locale` and `channel`                                                                                       |
+| `POST`   | `/admin/pim/products/:id/content`  | Create or update draft content (title, description, short_description, bullets_json, specifications_json, seo_json, custom_metadata_json) |
+| `POST`   | `/admin/pim/products/:id/publish`  | Publish a content record (archives previous published version)                                                                            |
+| `POST`   | `/admin/pim/products/:id/generate` | Trigger AI generation (translate, rewrite, extract_specs, seo, full)                                                                      |
+| `POST`   | `/admin/pim/products/:id/metadata` | Sync validated metadata to a content draft                                                                                                |
+| `GET`    | `/admin/pim/metadata-fields`       | List all metadata field definitions                                                                                                       |
+| `POST`   | `/admin/pim/metadata-fields`       | Create a metadata field definition                                                                                                        |
+| `GET`    | `/admin/pim/metadata-fields/:id`   | Get a metadata field definition                                                                                                           |
+| `POST`   | `/admin/pim/metadata-fields/:id`   | Update a metadata field definition                                                                                                        |
+| `DELETE` | `/admin/pim/metadata-fields/:id`   | Delete a metadata field definition                                                                                                        |
 
 ### Store routes (public)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/store/products/:id/content` | Get published content for a product by locale (falls back to Medusa native product fields) |
-| `POST` | `/store/pim/content/batch` | Batch fetch published content for multiple products in a single locale |
+| Method | Path                          | Description                                                                                |
+| ------ | ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `GET`  | `/store/products/:id/content` | Get published content for a product by locale (falls back to Medusa native product fields) |
+| `POST` | `/store/pim/content/batch`    | Batch fetch published content for multiple products in a single locale                     |
 
 ## Admin usage
 
@@ -141,7 +142,13 @@ Specifications are stored as a JSON array of objects:
 
 ```json
 [
-  { "key": "material", "label": "Material", "value": "Oak wood", "unit": "", "group": "Construction" },
+  {
+    "key": "material",
+    "label": "Material",
+    "value": "Oak wood",
+    "unit": "",
+    "group": "Construction"
+  },
   { "key": "weight", "label": "Weight", "value": "3.5", "unit": "kg", "group": "Dimensions" }
 ]
 ```

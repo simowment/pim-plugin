@@ -1,12 +1,14 @@
 import { model } from '@medusajs/framework/utils'
 
-const ProductMetadataField = model
+export const ProductMetadataField = model
   .define('product_metadata_field', {
     id: model.id().primaryKey(),
     key: model.text(),
     label: model.text(),
     description: model.text().nullable(),
-    type: model.enum(['string', 'text', 'number', 'boolean', 'select', 'multiselect', 'json', 'url']).default('string'),
+    type: model
+      .enum(['string', 'text', 'number', 'boolean', 'select', 'multiselect', 'json', 'url'])
+      .default('string'),
     scope: model.enum(['product', 'variant', 'content']).default('product'),
     group: model.text().nullable(),
     options_json: model.json().nullable(),

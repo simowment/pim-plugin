@@ -2,12 +2,13 @@ import { createStep, StepResponse } from '@medusajs/framework/workflows-sdk'
 import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
+import { resolvePimAiConfigFromContainer } from '../../lib/ai-config'
 
 const GENERATION_MODES = ['translate', 'rewrite', 'extract_specs', 'seo', 'full'] as const
 const TONES = ['neutral', 'luxury', 'technical', 'seo'] as const
 const JSON_CONTENT_TYPE = 'application/json'
 
-export type GenerateContentInput = {
+export interface GenerateContentInput {
   product_id: string
   source_locale?: string
   target_locale: string
@@ -16,18 +17,21 @@ export type GenerateContentInput = {
   tone?: (typeof TONES)[number]
   save_as?: 'draft' | 'job_only'
   created_by?: string | null
-  // AI provider config (passed from module options)
-  ai_provider?: string
-  ai_api_key?: string
-  ai_base_url?: string
-  ai_model?: string
-  ai_temperature?: number
-  ai_max_tokens?: number
-  ai_request_timeout_ms?: number
-  ai_headers?: Record<string, string>
 }
 
-export type GenerateContentOutput = {
+export type AiProviderStepResult =
+  | {
+      status: 'completed'
+      generated: Record<string, unknown>
+      error_message: null
+    }
+  | {
+      status: 'failed'
+      generated: null
+      error_message: string
+    }
+
+export interface GenerateContentOutput {
   job_id: string
   content_id: string | null
   generated: Record<string, unknown>
@@ -36,7 +40,13 @@ export type GenerateContentOutput = {
 export const createJobStep = createStep(
   'create-content-job',
   async (
-    input: { type: string; product_id: string | null; locale: string; input_json: Record<string, unknown>; created_by?: string | null },
+    input: {
+      type: string
+      product_id: string | null
+      locale: string
+      input_json: Record<string, unknown>
+      created_by?: string | null
+    },
     { container },
   ) => {
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
@@ -57,7 +67,12 @@ export const createJobStep = createStep(
   async (jobId, { container }) => {
     if (!jobId) return
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
-    await pim.deleteProductContentJobs(jobId)
+    await pim.updateProductContentJobs({
+      id: jobId,
+      status: 'failed' as any,
+      error_message: 'Generation workflow rolled back before completion.',
+      completed_at: new Date() as any,
+    })
   },
 )
 
@@ -70,72 +85,75 @@ export const callAiProviderStep = createStep(
       mode: string
       tone: string
       existing_content: Record<string, unknown> | null
-      ai_provider: string
-      ai_api_key: string
-      ai_base_url: string
-      ai_model: string
-      ai_temperature: number
-      ai_max_tokens: number
-      ai_request_timeout_ms: number
-      ai_headers: Record<string, string>
     },
     { container },
   ) => {
-    const logger = container.resolve<{ info: (message: string) => void; error: (message: string) => void }>('logger')
+    const logger = container.resolve<{
+      info: (message: string) => void
+      error: (message: string) => void
+    }>('logger')
+    const aiConfig = await resolvePimAiConfigFromContainer(container)
 
-    if (!input.ai_api_key) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_DATA,
-        'AI provider API key is not configured. Set PIM_AI_API_KEY in your environment.',
-      )
+    if (!aiConfig.api_key) {
+      return new StepResponse<AiProviderStepResult>({
+        status: 'failed',
+        generated: null,
+        error_message:
+          'AI provider API key is not configured. Set PIM_AI_API_KEY in your environment.',
+      })
     }
 
-    logger.info(`[PIM] Calling AI provider for product=${input.product_id} locale=${input.locale} mode=${input.mode}`)
+    logger.info(
+      `[PIM] Calling AI provider for product=${input.product_id} locale=${input.locale} mode=${input.mode}`,
+    )
 
     const systemPrompt = buildSystemPrompt(input.mode, input.tone, input.locale)
     const userPrompt = buildUserPrompt(input.mode, input.existing_content)
 
     const abortController = new AbortController()
-    const timeout = setTimeout(() => abortController.abort(), input.ai_request_timeout_ms)
+    const timeout = setTimeout(() => abortController.abort(), aiConfig.request_timeout_ms)
     let response: Response
     try {
-      response = await fetch(`${input.ai_base_url}/chat/completions`, {
+      response = await fetch(`${aiConfig.base_url}/chat/completions`, {
         method: 'POST',
         headers: {
-          ...input.ai_headers,
+          ...aiConfig.headers,
           'Content-Type': JSON_CONTENT_TYPE,
-          Authorization: `Bearer ${input.ai_api_key}`,
+          Authorization: `Bearer ${aiConfig.api_key}`,
         },
         body: JSON.stringify({
-          model: input.ai_model,
+          model: aiConfig.model,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
           response_format: { type: 'json_object' },
-          temperature: input.ai_temperature,
-          max_tokens: input.ai_max_tokens,
+          temperature: aiConfig.temperature,
+          max_tokens: aiConfig.max_tokens,
         }),
         signal: abortController.signal,
       })
     } catch (error) {
+      const errorMessage = getErrorMessage(error)
       logger.error(
-        `[PIM] AI provider request failed provider=${input.ai_provider} base_url=${input.ai_base_url} model=${input.ai_model}: ${error instanceof Error ? error.message : String(error)}`,
+        `[PIM] AI provider request failed provider=${aiConfig.provider} base_url=${aiConfig.base_url} model=${aiConfig.model}: ${errorMessage}`,
       )
-      throw new MedusaError(
-        MedusaError.Types.UNEXPECTED_STATE,
-        `AI provider request failed: ${error instanceof Error ? error.message : String(error)}`,
-      )
+      return new StepResponse<AiProviderStepResult>({
+        status: 'failed',
+        generated: null,
+        error_message: `AI provider request failed: ${errorMessage}`,
+      })
     } finally {
       clearTimeout(timeout)
     }
 
     if (!response.ok) {
       const errorText = await response.text()
-      throw new MedusaError(
-        MedusaError.Types.UNEXPECTED_STATE,
-        `AI provider returned ${response.status}: ${errorText}`,
-      )
+      return new StepResponse<AiProviderStepResult>({
+        status: 'failed',
+        generated: null,
+        error_message: `AI provider returned ${response.status}: ${errorText}`,
+      })
     }
 
     const responseBody = await response.text()
@@ -144,30 +162,55 @@ export const callAiProviderStep = createStep(
       data = JSON.parse(responseBody) as typeof data
     } catch {
       logger.error(`[PIM] AI response is not valid JSON: ${responseBody.slice(0, 500)}`)
-      throw new MedusaError(
-        MedusaError.Types.UNEXPECTED_STATE,
-        'AI provider returned invalid JSON response',
-      )
+      return new StepResponse<AiProviderStepResult>({
+        status: 'failed',
+        generated: null,
+        error_message: 'AI provider returned invalid JSON response',
+      })
     }
 
     const raw = data.choices?.[0]?.message?.content
 
     if (!raw) {
       const hasChoices = data.choices && data.choices.length > 0
-      const finishReason = data.choices?.[0] && 'finish_reason' in data.choices[0]
-        ? (data.choices[0] as Record<string, unknown>).finish_reason
-        : 'unknown'
+      const finishReason =
+        data.choices?.[0] && 'finish_reason' in data.choices[0]
+          ? (data.choices[0] as Record<string, unknown>).finish_reason
+          : 'unknown'
       logger.error(
         `[PIM] AI returned empty content: choices=${data.choices?.length ?? 0} finish_reason=${finishReason} body_preview=${responseBody.slice(0, 300)}`,
       )
-      throw new MedusaError(
-        MedusaError.Types.UNEXPECTED_STATE,
-        `AI provider returned empty content (finish_reason=${finishReason}, has_choices=${hasChoices}). Check model "${input.ai_model}" supports JSON output.`,
-      )
+      return new StepResponse<AiProviderStepResult>({
+        status: 'failed',
+        generated: null,
+        error_message: `AI provider returned empty content (finish_reason=${finishReason}, has_choices=${hasChoices}). Check model "${aiConfig.model}" supports JSON output.`,
+      })
     }
 
-    const generated = JSON.parse(raw) as Record<string, unknown>
-    return new StepResponse(generated)
+    try {
+      const generated = JSON.parse(raw) as Record<string, unknown>
+      return new StepResponse<AiProviderStepResult>({
+        status: 'completed',
+        generated,
+        error_message: null,
+      })
+    } catch {
+      return new StepResponse<AiProviderStepResult>({
+        status: 'failed',
+        generated: null,
+        error_message: 'AI provider returned non-JSON message content',
+      })
+    }
+  },
+)
+
+export const throwGenerationFailureStep = createStep(
+  'throw-generation-failure',
+  async (input: { error_message: string | null }) => {
+    throw new MedusaError(
+      MedusaError.Types.UNEXPECTED_STATE,
+      input.error_message ?? 'AI generation failed',
+    )
   },
 )
 
@@ -223,6 +266,11 @@ Fields may include: title, description, short_description, bullets_json (array),
 }
 
 function buildUserPrompt(mode: string, existing: Record<string, unknown> | null): string {
-  if (!existing) return 'No existing content available. Generate from scratch based on the product context.'
+  if (!existing)
+    return 'No existing content available. Generate from scratch based on the product context.'
   return `Existing content:\n${JSON.stringify(existing, null, 2)}`
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

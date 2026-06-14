@@ -7,7 +7,7 @@ const PUBLISHABLE_STATUSES = ['draft', 'ai_generated', 'reviewed']
 const PUBLISHED_STATUS = 'published'
 const ARCHIVED_STATUS = 'archived'
 
-export type PublishContentInput = {
+export interface PublishContentInput {
   content_id: string
   archive_previous?: boolean
   actor_id?: string | null

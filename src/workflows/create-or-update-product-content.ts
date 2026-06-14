@@ -5,11 +5,9 @@ import {
   type CreateOrUpdateContentInput,
 } from './steps/create-or-update-product-content'
 
-export type CreateOrUpdateProductContentInput = CreateOrUpdateContentInput
-
 export const createOrUpdateProductContentWorkflow: any = createWorkflow(
   'create-or-update-product-content',
-  function (input: CreateOrUpdateProductContentInput) {
+  function (input: CreateOrUpdateContentInput) {
     const result = createOrUpdateProductContentStep(input)
 
     const versionInput = transform({ result, input }, ({ result, input }) => ({

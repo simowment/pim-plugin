@@ -1,8 +1,14 @@
-import { createWorkflow, transform, WorkflowResponse, when } from '@medusajs/framework/workflows-sdk'
+import {
+  createWorkflow,
+  transform,
+  WorkflowResponse,
+  when,
+} from '@medusajs/framework/workflows-sdk'
 import {
   createJobStep,
   callAiProviderStep,
   finalizeJobStep,
+  throwGenerationFailureStep,
 } from './steps/generate-product-content'
 import {
   createOrUpdateProductContentStep,
@@ -10,7 +16,7 @@ import {
 } from './steps/create-or-update-product-content'
 import { hasUsableSpecifications } from '../lib/specifications'
 
-export type GenerateProductContentInput = {
+export interface GenerateProductContentInput {
   product_id: string
   source_locale?: string
   target_locale: string
@@ -19,15 +25,6 @@ export type GenerateProductContentInput = {
   tone?: 'neutral' | 'luxury' | 'technical' | 'seo'
   save_as?: 'draft' | 'job_only'
   created_by?: string | null
-  // AI provider config — passed from route using module options
-  ai_provider?: string
-  ai_api_key?: string
-  ai_base_url?: string
-  ai_model?: string
-  ai_temperature?: number
-  ai_max_tokens?: number
-  ai_request_timeout_ms?: number
-  ai_headers?: Record<string, string>
   // Existing content to enrich (pre-fetched by route)
   existing_content?: Record<string, unknown> | null
 }
@@ -57,25 +54,26 @@ export const generateProductContentWorkflow: any = createWorkflow(
       mode: input.mode,
       tone: input.tone ?? 'neutral',
       existing_content: input.existing_content ?? null,
-      ai_provider: input.ai_provider ?? 'openrouter',
-      ai_api_key: input.ai_api_key ?? '',
-      ai_base_url: input.ai_base_url ?? 'https://openrouter.ai/api/v1',
-      ai_model: input.ai_model ?? 'openai/gpt-4o-mini',
-      ai_temperature: input.ai_temperature ?? 0.4,
-      ai_max_tokens: input.ai_max_tokens ?? 1200,
-      ai_request_timeout_ms: input.ai_request_timeout_ms ?? 30000,
-      ai_headers: input.ai_headers ?? {},
     }))
-    const generated = callAiProviderStep(aiInput)
+    const aiResult = callAiProviderStep(aiInput)
+    const generated = transform({ aiResult }, ({ aiResult }) => aiResult.generated ?? {})
 
-    // 3. Finalize job as completed
-    const finalizeInput = transform({ job, generated }, ({ job, generated }) => ({
+    // 3. Finalize job for both completed and failed outcomes.
+    const finalizeInput = transform({ job, aiResult }, ({ job, aiResult }) => ({
       job_id: (job as any).id as string,
-      status: 'completed' as const,
-      result: generated as Record<string, unknown>,
-      error_message: null,
+      status: aiResult.status,
+      result: aiResult.generated,
+      error_message: aiResult.error_message,
     }))
     finalizeJobStep(finalizeInput)
+
+    when(aiResult, (result) => result.status === 'failed').then(() => {
+      throwGenerationFailureStep(
+        transform({ aiResult }, ({ aiResult }) => ({
+          error_message: aiResult.error_message,
+        })),
+      )
+    })
 
     // 4. Save as draft if requested
     const contentInput = transform({ generated, input }, ({ generated, input }) => {
@@ -103,7 +101,11 @@ export const generateProductContentWorkflow: any = createWorkflow(
       }
     })
 
-    const savedContent = when(input, (i) => (i.save_as ?? 'draft') === 'draft').then(() => {
+    const savedContent = when(
+      { input, aiResult },
+      ({ input, aiResult }) =>
+        aiResult.status === 'completed' && (input.save_as ?? 'draft') === 'draft',
+    ).then(() => {
       const content = createOrUpdateProductContentStep(contentInput)
       const versionInput = transform({ content }, ({ content }) => ({
         content_id: (content.content as any).id as string,

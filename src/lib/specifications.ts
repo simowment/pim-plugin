@@ -1,4 +1,4 @@
-export type PimSpecification = {
+export interface PimSpecification {
   key: string
   label: string
   value: string
@@ -9,13 +9,13 @@ export type PimSpecification = {
 export const PIM_ACTIVE_STATUSES = ['draft', 'ai_generated', 'reviewed', 'published'] as const
 export const PIM_MUTABLE_STATUSES = ['draft', 'ai_generated', 'reviewed'] as const
 
-type ProductSource = {
+interface ProductSource {
   title?: unknown
   description?: unknown
   metadata?: unknown
 }
 
-type ContentRecord = Record<string, unknown>
+interface ContentRecord extends Record<string, unknown> {}
 
 function specificationKey(label: string): string {
   return label
@@ -71,11 +71,17 @@ export function localeMatches(recordLocale: unknown, requestedLocale: unknown): 
   return record === requested || normalizePimLanguage(record) === normalizePimLanguage(requested)
 }
 
-export function hasUsableSpecifications(specifications: unknown): specifications is PimSpecification[] {
+export function hasUsableSpecifications(
+  specifications: unknown,
+): specifications is PimSpecification[] {
   return Array.isArray(specifications) && specifications.length > 0
 }
 
-function channelScore(recordChannel: unknown, requestedChannel: string, defaultChannel: string): number {
+function channelScore(
+  recordChannel: unknown,
+  requestedChannel: string,
+  defaultChannel: string,
+): number {
   if (recordChannel === requestedChannel) {
     return 0
   }
@@ -156,7 +162,8 @@ export function resolveBestPimContentRecord(
       }
     }
 
-    const localeDelta = localeScore(a.locale, options.locale) - localeScore(b.locale, options.locale)
+    const localeDelta =
+      localeScore(a.locale, options.locale) - localeScore(b.locale, options.locale)
     if (localeDelta !== 0) {
       return localeDelta
     }
@@ -176,9 +183,7 @@ export function resolveBestPimContentRecord(
   return matches[0] ?? null
 }
 
-export function normalizeSupplierSpecifications(
-  attributes: unknown,
-): PimSpecification[] {
+export function normalizeSupplierSpecifications(attributes: unknown): PimSpecification[] {
   if (!attributes || typeof attributes !== 'object' || Array.isArray(attributes)) {
     return []
   }

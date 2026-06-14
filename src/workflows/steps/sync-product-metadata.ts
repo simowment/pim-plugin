@@ -3,7 +3,7 @@ import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 
-export type SyncMetadataInput = {
+export interface SyncMetadataInput {
   product_id: string
   scope: 'product' | 'content'
   locale?: string
@@ -18,10 +18,7 @@ export const syncProductMetadataStep = createStep(
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
 
     // Load field definitions for validation
-    const fieldDefs = await pim.listProductMetadataFields(
-      { scope: input.scope as any },
-      {},
-    )
+    const fieldDefs = await pim.listProductMetadataFields({ scope: input.scope as any }, {})
 
     const allowedKeys = new Set(fieldDefs.map((f: any) => f.key as string))
     const unknownKeys = Object.keys(input.metadata).filter((k) => !allowedKeys.has(k))
@@ -74,18 +71,30 @@ export const syncProductMetadataStep = createStep(
     }
 
     // For product scope: not stored in PIM — return the validated metadata for caller
-    return new StepResponse({ product_id: input.product_id, metadata: input.metadata } as Record<string, unknown>)
+    return new StepResponse({ product_id: input.product_id, metadata: input.metadata } as Record<
+      string,
+      unknown
+    >)
   },
 )
 
 function validateFieldValue(key: string, type: string, value: unknown): void {
   if (type === 'number' && typeof value !== 'number') {
-    throw new MedusaError(MedusaError.Types.INVALID_DATA, `Metadata field "${key}" must be a number`)
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Metadata field "${key}" must be a number`,
+    )
   }
   if (type === 'boolean' && typeof value !== 'boolean') {
-    throw new MedusaError(MedusaError.Types.INVALID_DATA, `Metadata field "${key}" must be a boolean`)
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Metadata field "${key}" must be a boolean`,
+    )
   }
   if ((type === 'string' || type === 'text' || type === 'url') && typeof value !== 'string') {
-    throw new MedusaError(MedusaError.Types.INVALID_DATA, `Metadata field "${key}" must be a string`)
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Metadata field "${key}" must be a string`,
+    )
   }
 }

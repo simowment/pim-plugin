@@ -22,7 +22,7 @@ import {
 import { Plus, Trash, PencilSquare, ArrowPath, Sparkles } from '@medusajs/icons'
 import { sdk } from '../../lib/sdk'
 
-type AdminProduct = {
+interface AdminProduct {
   id: string
   title: string
   handle?: string | null
@@ -30,12 +30,12 @@ type AdminProduct = {
   description?: string | null
 }
 
-type BulletPoint = {
+interface BulletPoint {
   label?: string
   text: string
 }
 
-type Specification = {
+interface Specification {
   key: string
   label?: string
   value: string
@@ -43,7 +43,7 @@ type Specification = {
   group?: string
 }
 
-type PimContent = {
+interface PimContent {
   id: string
   product_id: string
   locale: string
@@ -63,12 +63,12 @@ type PimContent = {
   updated_at: string
 }
 
-type ProductContentResponse = {
+interface ProductContentResponse {
   content: PimContent[]
   supplier_specifications: Specification[]
 }
 
-type MetadataField = {
+interface MetadataField {
   id: string
   key: string
   label: string
@@ -87,7 +87,7 @@ type MetadataField = {
   sort_order: number
 }
 
-type PimJob = {
+interface PimJob {
   id: string
   type: 'translate' | 'rewrite' | 'extract_specs' | 'seo' | 'full'
   product_id: string | null
@@ -99,7 +99,7 @@ type PimJob = {
   created_at: string
 }
 
-type PimAiSettings = {
+interface PimAiSettings {
   provider: string
   model: string
   base_url: string
@@ -109,11 +109,38 @@ type PimAiSettings = {
   has_api_key: boolean
   api_key_preview: string
   can_update: boolean
-  source: 'gateway' | 'environment'
+  source: 'gateway' | 'pim_settings' | 'environment'
 }
 
 const DEFAULT_LOCALES = ['en', 'fr', 'es', 'de', 'nl', 'it', 'pt']
 const DEFAULT_CHANNELS = ['storefront', 'default', 'google', 'meta']
+const DEFAULT_AI_PROVIDER = 'openrouter'
+const AI_PROVIDER_DEFAULTS = [
+  {
+    value: 'openrouter',
+    label: 'OpenRouter',
+    base_url: 'https://openrouter.ai/api/v1',
+    model: 'openai/gpt-4o-mini',
+  },
+  {
+    value: 'openai',
+    label: 'OpenAI',
+    base_url: 'https://api.openai.com/v1',
+    model: 'gpt-4o-mini',
+  },
+  {
+    value: 'kilo',
+    label: 'Kilo Code',
+    base_url: 'https://api.kilo.ai/api/gateway',
+    model: 'kilo/kilo-auto/free',
+  },
+  {
+    value: 'custom',
+    label: 'Custom gateway',
+    base_url: '',
+    model: '',
+  },
+]
 
 const STATUS_COLORS: Record<string, 'green' | 'blue' | 'orange' | 'grey' | 'red'> = {
   published: 'green',
@@ -816,75 +843,100 @@ function ProductsTab() {
                       )}
                     </div>
 
-                    {/* Specifications Repeating Table */}
+                    {/* Specifications Editor */}
                     <div className="space-y-3 pt-6">
                       <div className="flex items-center justify-between border-b pb-2">
-                        <Text size="base" weight="plus">
-                          Structured Specifications
-                        </Text>
+                        <div className="space-y-1">
+                          <Text size="base" weight="plus">
+                            Structured Specifications
+                          </Text>
+                          <Text size="xsmall" className="text-ui-fg-subtle">
+                            {form.specifications_json.length
+                              ? `${form.specifications_json.length} specifications ready for enrichment.`
+                              : 'Add supplier facts, dimensions, compatibility notes, and product details.'}
+                          </Text>
+                        </div>
                         <Button size="small" variant="secondary" onClick={addSpec}>
                           <Plus /> Add Specification
                         </Button>
                       </div>
                       {form.specifications_json.length > 0 ? (
-                        <Table>
-                          <Table.Header>
-                            <Table.Row>
-                              <Table.HeaderCell>Group</Table.HeaderCell>
-                              <Table.HeaderCell>Key</Table.HeaderCell>
-                              <Table.HeaderCell>Label</Table.HeaderCell>
-                              <Table.HeaderCell>Value</Table.HeaderCell>
-                              <Table.HeaderCell>Unit</Table.HeaderCell>
-                              <Table.HeaderCell className="w-[40px]"></Table.HeaderCell>
-                            </Table.Row>
-                          </Table.Header>
-                          <Table.Body>
-                            {form.specifications_json.map((spec, index) => (
-                              <Table.Row key={index}>
-                                <Table.Cell>
-                                  <Input
-                                    placeholder="Dimensions"
-                                    value={spec.group ?? ''}
-                                    onChange={(e) => updateSpec(index, { group: e.target.value })}
-                                  />
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <Input
-                                    placeholder="weight"
-                                    value={spec.key}
-                                    onChange={(e) => updateSpec(index, { key: e.target.value })}
-                                  />
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <Input
-                                    placeholder="Weight"
-                                    value={spec.label ?? ''}
-                                    onChange={(e) => updateSpec(index, { label: e.target.value })}
-                                  />
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <Input
-                                    placeholder="1.5"
-                                    value={spec.value}
-                                    onChange={(e) => updateSpec(index, { value: e.target.value })}
-                                  />
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <Input
-                                    placeholder="kg"
-                                    value={spec.unit ?? ''}
-                                    onChange={(e) => updateSpec(index, { unit: e.target.value })}
-                                  />
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <IconButton size="small" variant="transparent" onClick={() => removeSpec(index)}>
+                        <div className="space-y-3">
+                          {form.specifications_json.map((spec, index) => {
+                            const title = spec.label || spec.key || `Specification ${index + 1}`
+                            const hasSource = Boolean(spec.group || spec.key)
+
+                            return (
+                              <div key={index} className="rounded-md border border-ui-border-base bg-ui-bg-subtle p-3">
+                                <div className="mb-3 flex items-start justify-between gap-3">
+                                  <div className="min-w-0 space-y-1">
+                                    <Text size="small" weight="plus" className="truncate">
+                                      {title}
+                                    </Text>
+                                    <Text size="xsmall" className="text-ui-fg-subtle">
+                                      {hasSource
+                                        ? [spec.group, spec.key].filter(Boolean).join(' / ')
+                                        : 'No source group or key set'}
+                                    </Text>
+                                  </div>
+                                  <IconButton
+                                    size="small"
+                                    variant="transparent"
+                                    onClick={() => removeSpec(index)}
+                                  >
                                     <Trash className="text-ui-fg-danger" />
                                   </IconButton>
-                                </Table.Cell>
-                              </Table.Row>
-                            ))}
-                          </Table.Body>
-                        </Table>
+                                </div>
+
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_7rem]">
+                                  <div className="flex flex-col gap-1">
+                                    <Label className="text-xs text-ui-fg-subtle">Label</Label>
+                                    <Input
+                                      placeholder="Material"
+                                      value={spec.label ?? ''}
+                                      onChange={(event) => updateSpec(index, { label: event.target.value })}
+                                    />
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <Label className="text-xs text-ui-fg-subtle">Value</Label>
+                                    <Input
+                                      placeholder="PU, 60 cm, indoor/outdoor"
+                                      value={spec.value}
+                                      onChange={(event) => updateSpec(index, { value: event.target.value })}
+                                    />
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <Label className="text-xs text-ui-fg-subtle">Unit</Label>
+                                    <Input
+                                      placeholder="optional"
+                                      value={spec.unit ?? ''}
+                                      onChange={(event) => updateSpec(index, { unit: event.target.value })}
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                                  <div className="flex flex-col gap-1">
+                                    <Label className="text-xs text-ui-fg-subtle">Group</Label>
+                                    <Input
+                                      placeholder="supplier"
+                                      value={spec.group ?? ''}
+                                      onChange={(event) => updateSpec(index, { group: event.target.value })}
+                                    />
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <Label className="text-xs text-ui-fg-subtle">Key</Label>
+                                    <Input
+                                      placeholder="material"
+                                      value={spec.key}
+                                      onChange={(event) => updateSpec(index, { key: event.target.value })}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
                       ) : (
                         <Text size="small" className="text-ui-fg-muted italic">
                           No technical specifications defined.
@@ -1072,6 +1124,19 @@ function ProductsTab() {
   )
 }
 
+function aiProviderDefaults(provider: string) {
+  return (
+    AI_PROVIDER_DEFAULTS.find((option) => option.value === provider) ??
+    AI_PROVIDER_DEFAULTS.find((option) => option.value === DEFAULT_AI_PROVIDER)!
+  )
+}
+
+function aiSettingsSourceLabel(source?: PimAiSettings['source']) {
+  if (source === 'gateway') return 'Gateway service'
+  if (source === 'pim_settings') return 'PIM settings'
+  return 'Environment variables'
+}
+
 function AiSettingsTab() {
   const queryClient = useQueryClient()
   const [form, setForm] = useState({
@@ -1099,10 +1164,12 @@ function AiSettingsTab() {
 
   const saveMutation = useMutation({
     mutationFn: () => {
+      const providerDefaults = aiProviderDefaults(form.provider)
+      const requiresCustomBaseUrl = form.provider === 'custom'
       const body: Record<string, string> = {
         provider: form.provider,
-        model: form.model,
-        base_url: form.base_url,
+        model: form.model.trim() || providerDefaults.model,
+        base_url: requiresCustomBaseUrl ? form.base_url.trim() : providerDefaults.base_url,
       }
       if (form.api_key.trim()) {
         body.api_key = form.api_key.trim()
@@ -1122,6 +1189,15 @@ function AiSettingsTab() {
 
   const settings = settingsQuery.data?.settings
   const canUpdateSettings = Boolean(settings?.can_update)
+  const providerDefaults = aiProviderDefaults(form.provider)
+  const requiresCustomBaseUrl = form.provider === 'custom'
+  const effectiveBaseUrl = requiresCustomBaseUrl ? form.base_url : providerDefaults.base_url
+  const canSaveSettings =
+    canUpdateSettings &&
+    !saveMutation.isPending &&
+    Boolean(form.provider) &&
+    Boolean(form.model.trim() || providerDefaults.model) &&
+    (!requiresCustomBaseUrl || Boolean(form.base_url.trim()))
 
   return (
     <Container className="mt-4 overflow-hidden">
@@ -1130,7 +1206,7 @@ function AiSettingsTab() {
           PIM AI Gateway
         </Text>
         <Text size="small" leading="compact" className="text-ui-fg-subtle">
-          Configure the LLM gateway used by PIM generation. When no writable gateway service is registered, these values are read from server-side PIM_AI_* environment variables.
+          Configure the LLM gateway used by PIM generation. OpenAI, OpenRouter, and Kilo Code use their default compatible API URLs automatically.
         </Text>
       </div>
 
@@ -1144,15 +1220,29 @@ function AiSettingsTab() {
                 <Select
                   size="small"
                   value={form.provider}
-                  onValueChange={(value) => setForm({ ...form, provider: value })}
+                  onValueChange={(value) => {
+                    const currentDefaults = aiProviderDefaults(form.provider)
+                    const nextDefaults = aiProviderDefaults(value)
+                    setForm({
+                      ...form,
+                      provider: value,
+                      model:
+                        !form.model.trim() || form.model === currentDefaults.model
+                          ? nextDefaults.model
+                          : form.model,
+                      base_url: value === 'custom' ? form.base_url : nextDefaults.base_url,
+                    })
+                  }}
                 >
                   <Select.Trigger>
                     <Select.Value />
                   </Select.Trigger>
                   <Select.Content>
-                    <Select.Item value="openrouter">OpenRouter</Select.Item>
-                    <Select.Item value="openai">OpenAI</Select.Item>
-                    <Select.Item value="custom">Custom gateway</Select.Item>
+                    {AI_PROVIDER_DEFAULTS.map((option) => (
+                      <Select.Item key={option.value} value={option.value}>
+                        {option.label}
+                      </Select.Item>
+                    ))}
                   </Select.Content>
                 </Select>
               </Field>
@@ -1165,11 +1255,12 @@ function AiSettingsTab() {
               </Field>
             </div>
 
-            <Field label="Gateway Base URL">
+            <Field label={requiresCustomBaseUrl ? 'Gateway Base URL' : 'Resolved Base URL'}>
               <Input
-                value={form.base_url}
+                value={effectiveBaseUrl}
                 onChange={(event) => setForm({ ...form, base_url: event.target.value })}
-                placeholder="https://openrouter.ai/api/v1"
+                placeholder={providerDefaults.base_url || 'https://gateway.example.com/v1'}
+                disabled={!requiresCustomBaseUrl}
               />
             </Field>
 
@@ -1183,7 +1274,7 @@ function AiSettingsTab() {
               {settings?.has_api_key && settings.api_key_preview ? (
                 <div className="flex items-center gap-1.5 mt-1.5">
                   <Badge size="2xsmall" rounded="full" className="bg-ui-tag-green-icon text-ui-tag-green-icon">
-                    ✓
+                    OK
                   </Badge>
                   <Text size="xsmall" className="text-ui-fg-subtle font-mono">
                     {settings.api_key_preview}
@@ -1192,7 +1283,7 @@ function AiSettingsTab() {
               ) : (
                 <div className="flex items-center gap-1.5 mt-1.5">
                   <Badge size="2xsmall" rounded="full" className="bg-ui-tag-red-icon text-ui-tag-red-icon">
-                    ✗
+                    No
                   </Badge>
                   <Text size="xsmall" className="text-ui-fg-subtle">
                     No API key saved
@@ -1205,10 +1296,10 @@ function AiSettingsTab() {
               <Button
                 size="small"
                 isLoading={saveMutation.isPending}
-                disabled={!canUpdateSettings || saveMutation.isPending || !form.provider || !form.model || !form.base_url}
+                disabled={!canSaveSettings}
                 onClick={() => saveMutation.mutate()}
               >
-                {canUpdateSettings ? 'Save AI Settings' : 'Configured by Environment'}
+                Save AI Settings
               </Button>
             </div>
           </div>
@@ -1218,10 +1309,10 @@ function AiSettingsTab() {
               Current gateway
             </Text>
             <SettingsRow label="Provider" value={settings?.provider} />
-            <SettingsRow label="Source" value={settings?.source === 'gateway' ? 'Gateway service' : 'Environment variables'} />
+            <SettingsRow label="Source" value={aiSettingsSourceLabel(settings?.source)} />
             <SettingsRow label="Model" value={settings?.model} />
             <SettingsRow label="Base URL" value={settings?.base_url} />
-            <SettingsRow label="API key" value={settings?.has_api_key ? `✓ ${settings.api_key_preview}` : '✗ Not configured'} />
+            <SettingsRow label="API key" value={settings?.has_api_key ? `Configured ${settings.api_key_preview}` : 'Not configured'} />
             <SettingsRow label="Temperature" value={String(settings?.temperature ?? '')} />
             <SettingsRow label="Max tokens" value={String(settings?.max_tokens ?? '')} />
           </div>
@@ -1231,14 +1322,19 @@ function AiSettingsTab() {
   )
 }
 
-function SettingsRow({ label, value }: { label: string; value?: string }) {
+interface SettingsRowProps {
+  label: string
+  value?: string
+}
+
+function SettingsRow({ label, value }: SettingsRowProps) {
   return (
     <div className="space-y-1">
       <Text size="xsmall" leading="compact" weight="plus" className="text-ui-fg-subtle">
         {label}
       </Text>
       <Text size="small" leading="compact" className="break-all">
-        {value || '—'}
+        {value || '-'}
       </Text>
     </div>
   )
@@ -1496,7 +1592,12 @@ function JobsTab() {
   )
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+interface FieldProps {
+  label: string
+  children: ReactNode
+}
+
+function Field({ label, children }: FieldProps) {
   return (
     <div className="flex flex-col gap-y-2">
       <Label>{label}</Label>

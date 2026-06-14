@@ -6,34 +6,38 @@ import { resolveBestPimContentRecord } from '../../../../../lib/specifications'
 
 const PUBLISHED_STATUS = 'published'
 const DEFAULT_CHANNEL = process.env.PIM_DEFAULT_CHANNEL ?? 'storefront'
+const CONTENT_RECORD_LIMIT_MULTIPLIER = 4
 
 // POST /store/pim/content/batch
-export async function POST(
-  req: MedusaRequest<BatchContentSchema>,
-  res: MedusaResponse,
-) {
+export async function POST(req: MedusaRequest<BatchContentSchema>, res: MedusaResponse) {
   const { product_ids, locale, channel } = req.validatedBody
   const effectiveChannel = channel ?? DEFAULT_CHANNEL
 
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
-
-  // Fetch all published content for these products in bulk
-  const [allRecords] = await pim.listAndCountProductContents(
-    {
-      product_id: product_ids as any,
-      status: [PUBLISHED_STATUS] as any,
-    },
-    {},
-  )
-
-  // Build a lookup: product_id → best matching content record
   const resultMap = new Map<string, Record<string, unknown>>()
 
+  const [records] = await pim.listAndCountProductContents(
+    {
+      product_id: product_ids,
+      status: PUBLISHED_STATUS,
+    },
+    {
+      take: product_ids.length * CONTENT_RECORD_LIMIT_MULTIPLIER,
+      order: { published_at: 'DESC' },
+    },
+  )
+
+  const recordsByProduct = new Map<string, Array<Record<string, unknown>>>()
+  for (const record of records as unknown as Array<Record<string, unknown>>) {
+    const productId = typeof record.product_id === 'string' ? record.product_id : null
+    if (!productId) continue
+    const existing = recordsByProduct.get(productId) ?? []
+    existing.push(record)
+    recordsByProduct.set(productId, existing)
+  }
+
   for (const productId of product_ids) {
-    const productRecords = (allRecords as unknown as Array<Record<string, unknown>>).filter(
-      (record) => record.product_id === productId,
-    )
-    const match = resolveBestPimContentRecord(productRecords, {
+    const match = resolveBestPimContentRecord(recordsByProduct.get(productId) ?? [], {
       locale,
       channel: effectiveChannel,
       defaultChannel: DEFAULT_CHANNEL,

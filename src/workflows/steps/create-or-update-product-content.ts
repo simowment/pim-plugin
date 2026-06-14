@@ -1,15 +1,11 @@
 import { createStep, StepResponse } from '@medusajs/framework/workflows-sdk'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
-import {
-  PIM_MUTABLE_STATUSES,
-  resolveBestPimContentRecord,
-} from '../../lib/specifications'
+import { PIM_MUTABLE_STATUSES, resolveBestPimContentRecord } from '../../lib/specifications'
 
 const DRAFT_STATUS = 'draft'
-type ProductContentSource = 'supplier' | 'manual' | 'ai' | 'import' | 'directus' | 'agent'
 
-export type CreateOrUpdateContentInput = {
+export interface CreateOrUpdateContentInput {
   product_id: string
   locale: string
   channel?: string
@@ -21,14 +17,14 @@ export type CreateOrUpdateContentInput = {
   seo_json?: Record<string, unknown> | null
   custom_metadata_json?: Record<string, unknown> | null
   raw_source_json?: Record<string, unknown> | null
-  source?: ProductContentSource
+  source?: 'supplier' | 'manual' | 'ai' | 'import' | 'directus' | 'agent'
   status?: string
   created_by?: string | null
   updated_by?: string | null
   change_reason?: string
 }
 
-export type CreateOrUpdateContentOutput = {
+export interface CreateOrUpdateContentOutput {
   content: Record<string, unknown>
   is_new: boolean
   previous_snapshot: Record<string, unknown> | null
@@ -51,18 +47,14 @@ export const createOrUpdateProductContentStep = createStep(
       { take: 100, order: { updated_at: 'DESC' } },
     )
 
-    const existing = (resolveBestPimContentRecord(
-      existingRecords as unknown as Array<Record<string, unknown>>,
-      {
+    const existing =
+      (resolveBestPimContentRecord(existingRecords as unknown as Array<Record<string, unknown>>, {
         locale: input.locale,
         channel,
         defaultChannel: 'storefront',
         statuses: PIM_MUTABLE_STATUSES,
-      },
-    ) as (Record<string, unknown> & { id: string }) | null) ?? null
-    const previousSnapshot: Record<string, unknown> | null = existing
-      ? { ...existing }
-      : null
+      }) as (Record<string, unknown> & { id: string }) | null) ?? null
+    const previousSnapshot: Record<string, unknown> | null = existing ? { ...existing } : null
 
     const contentData = {
       product_id: input.product_id,
@@ -72,7 +64,10 @@ export const createOrUpdateProductContentStep = createStep(
       description: input.description ?? null,
       short_description: input.short_description ?? null,
       bullets_json: (input.bullets_json ?? null) as unknown as Record<string, unknown> | null,
-      specifications_json: (input.specifications_json ?? null) as unknown as Record<string, unknown> | null,
+      specifications_json: (input.specifications_json ?? null) as unknown as Record<
+        string,
+        unknown
+      > | null,
       seo_json: input.seo_json ?? null,
       custom_metadata_json: input.custom_metadata_json ?? null,
       raw_source_json: (input.raw_source_json ?? null) as unknown as Record<string, unknown> | null,
@@ -141,7 +136,8 @@ export const appendContentVersionStep = createStep(
       { order: { version: 'DESC' }, take: 1 },
     )
 
-    const nextVersion = existingVersions.length > 0 ? (existingVersions[0].version as number) + 1 : 1
+    const nextVersion =
+      existingVersions.length > 0 ? (existingVersions[0].version as number) + 1 : 1
 
     const version = await pim.createProductContentVersions({
       content_id: input.content_id,

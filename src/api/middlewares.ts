@@ -11,6 +11,8 @@ import {
   METADATA_FIELD_WRITE_POLICIES,
 } from '../lib/metadata-fields'
 
+export const BATCH_CONTENT_PRODUCT_LIMIT = 50
+
 // ─── Body schemas ──────────────────────────────────────────────────────────
 
 const BulletSchema = z.object({
@@ -38,13 +40,13 @@ export const UpsertContentSchema = z.object({
   custom_metadata_json: z.record(z.string(), z.unknown()).nullable().optional(),
   change_reason: z.string().optional(),
 })
-export type UpsertContentSchema = z.infer<typeof UpsertContentSchema>
+export interface UpsertContentSchema extends z.infer<typeof UpsertContentSchema> {}
 
 export const PublishContentSchema = z.object({
   content_id: z.string(),
   archive_previous: z.boolean().optional(),
 })
-export type PublishContentSchema = z.infer<typeof PublishContentSchema>
+export interface PublishContentSchema extends z.infer<typeof PublishContentSchema> {}
 
 export const GenerateContentSchema = z.object({
   source_locale: z.string().optional(),
@@ -54,7 +56,7 @@ export const GenerateContentSchema = z.object({
   tone: z.enum(['neutral', 'luxury', 'technical', 'seo']).optional(),
   save_as: z.enum(['draft', 'job_only']).optional(),
 })
-export type GenerateContentSchema = z.infer<typeof GenerateContentSchema>
+export interface GenerateContentSchema extends z.infer<typeof GenerateContentSchema> {}
 
 export const UpdatePimAiSettingsSchema = z.object({
   provider: z.string().min(1).optional(),
@@ -62,7 +64,7 @@ export const UpdatePimAiSettingsSchema = z.object({
   base_url: z.string().url().optional(),
   model: z.string().min(1).optional(),
 })
-export type UpdatePimAiSettingsSchema = z.infer<typeof UpdatePimAiSettingsSchema>
+export interface UpdatePimAiSettingsSchema extends z.infer<typeof UpdatePimAiSettingsSchema> {}
 
 export const UpdateMetadataSchema = z.object({
   scope: z.enum(['product', 'content']),
@@ -70,7 +72,7 @@ export const UpdateMetadataSchema = z.object({
   channel: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()),
 })
-export type UpdateMetadataSchema = z.infer<typeof UpdateMetadataSchema>
+export interface UpdateMetadataSchema extends z.infer<typeof UpdateMetadataSchema> {}
 
 export const CreateMetadataFieldSchema = z.object({
   key: z.string().min(1),
@@ -79,7 +81,10 @@ export const CreateMetadataFieldSchema = z.object({
   type: z.enum(METADATA_FIELD_TYPES).optional(),
   scope: z.enum(METADATA_FIELD_SCOPES).optional(),
   group: z.string().nullable().optional(),
-  options_json: z.array(z.object({ label: z.string(), value: z.string() })).nullable().optional(),
+  options_json: z
+    .array(z.object({ label: z.string(), value: z.string() }))
+    .nullable()
+    .optional(),
   required: z.boolean().optional(),
   localized: z.boolean().optional(),
   channel_specific: z.boolean().optional(),
@@ -89,14 +94,14 @@ export const CreateMetadataFieldSchema = z.object({
   validation_json: z.record(z.string(), z.unknown()).nullable().optional(),
   sort_order: z.number().optional(),
 })
-export type CreateMetadataFieldSchema = z.infer<typeof CreateMetadataFieldSchema>
+export interface CreateMetadataFieldSchema extends z.infer<typeof CreateMetadataFieldSchema> {}
 
 export const BatchContentSchema = z.object({
-  product_ids: z.array(z.string()).min(1),
+  product_ids: z.array(z.string()).min(1).max(BATCH_CONTENT_PRODUCT_LIMIT),
   locale: z.string(),
   channel: z.string().optional(),
 })
-export type BatchContentSchema = z.infer<typeof BatchContentSchema>
+export interface BatchContentSchema extends z.infer<typeof BatchContentSchema> {}
 
 // ─── Query schemas ─────────────────────────────────────────────────────────
 
@@ -130,13 +135,23 @@ export default defineMiddlewares({
     {
       matcher: '/admin/pim/content',
       method: 'GET',
-      middlewares: [validateAndTransformQuery(ListContentQuerySchema, { isList: true, defaults: ['id', 'product_id', 'locale', 'channel', 'status', 'title', 'updated_at'] })],
+      middlewares: [
+        validateAndTransformQuery(ListContentQuerySchema, {
+          isList: true,
+          defaults: ['id', 'product_id', 'locale', 'channel', 'status', 'title', 'updated_at'],
+        }),
+      ],
     },
     // List jobs
     {
       matcher: '/admin/pim/jobs',
       method: 'GET',
-      middlewares: [validateAndTransformQuery(ListJobsQuerySchema, { isList: true, defaults: ['id', 'type', 'product_id', 'locale', 'status', 'created_at'] })],
+      middlewares: [
+        validateAndTransformQuery(ListJobsQuerySchema, {
+          isList: true,
+          defaults: ['id', 'type', 'product_id', 'locale', 'status', 'created_at'],
+        }),
+      ],
     },
     // Product content CRUD
     {

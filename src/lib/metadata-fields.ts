@@ -11,38 +11,40 @@ export const METADATA_FIELD_TYPES = [
 
 export const METADATA_FIELD_SCOPES = ['product', 'variant', 'content'] as const
 export const METADATA_FIELD_WRITE_POLICIES = ['admin', 'agent', 'system'] as const
+export const INVALID_METADATA_FIELD_KEY_MESSAGE =
+  'Metadata field key must contain at least one letter, number, or underscore'
 
-export type MetadataFieldType = typeof METADATA_FIELD_TYPES[number]
-export type MetadataFieldScope = typeof METADATA_FIELD_SCOPES[number]
-export type MetadataFieldWritePolicy = typeof METADATA_FIELD_WRITE_POLICIES[number]
-
-export type MetadataFieldOptions = Array<{
+export interface MetadataFieldOption {
   label: string
   value: string
-}>
+}
 
-export type MetadataFieldData = {
+export interface MetadataFieldData {
   key: string
   label: string
   description?: string | null
-  type?: MetadataFieldType
-  scope?: MetadataFieldScope
+  type?: (typeof METADATA_FIELD_TYPES)[number]
+  scope?: (typeof METADATA_FIELD_SCOPES)[number]
   group?: string | null
-  options_json?: MetadataFieldOptions | null
+  options_json?: MetadataFieldOption[] | null
   required?: boolean
   localized?: boolean
   channel_specific?: boolean
   visible_in_admin?: boolean
   visible_in_storefront?: boolean
-  write_policy?: MetadataFieldWritePolicy
+  write_policy?: (typeof METADATA_FIELD_WRITE_POLICIES)[number]
   validation_json?: Record<string, unknown> | null
   sort_order?: number
 }
 
-export type MetadataFieldUpdateData = Partial<MetadataFieldData>
+export interface MetadataFieldUpdateData extends Partial<MetadataFieldData> {}
 
 export function normalizeMetadataFieldKey(key: string): string {
-  return key.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '')
+  return key
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
 }
 
 export function normalizeMetadataFieldData<T extends MetadataFieldUpdateData>(input: T): T {

@@ -34,7 +34,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const [records] = await pim.listAndCountProductContents(
     {
       product_id,
-      status: [PUBLISHED_STATUS] as any,
+      status: PUBLISHED_STATUS,
     },
     { take: 100, order: { published_at: 'DESC' } },
   )

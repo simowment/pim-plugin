@@ -2,7 +2,7 @@ import { createStep, StepResponse } from '@medusajs/framework/workflows-sdk'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 
-export type DeleteMetadataFieldInput = {
+export interface DeleteMetadataFieldInput {
   id: string
 }
 

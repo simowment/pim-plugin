@@ -64,7 +64,7 @@ describe('supplier specification normalization', () => {
       metadata: {
         supplier: 'aliexpress',
         supplier_product_id: '100500',
-        attributes: { Mat\u00e9riau: 'PU' },
+        attributes: { Matériau: 'PU' },
       },
     })
 
@@ -103,9 +103,7 @@ describe('supplier specification normalization', () => {
   })
 
   it('preserves stored specifications when they exist', () => {
-    const storedSpecifications = [
-      { key: 'material', label: 'Material', value: 'Polyurethane' },
-    ]
+    const storedSpecifications = [{ key: 'material', label: 'Material', value: 'Polyurethane' }]
     const source = buildPimGenerationSource(
       {
         metadata: { attributes: { Material: 'PU' } },

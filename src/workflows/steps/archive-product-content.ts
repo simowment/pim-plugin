@@ -3,7 +3,7 @@ import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 
-export type ArchiveProductContentInput = {
+export interface ArchiveProductContentInput {
   id: string
   actor_id?: string | null
 }

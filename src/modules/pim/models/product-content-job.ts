@@ -3,7 +3,7 @@ import { model } from '@medusajs/framework/utils'
 const JOB_TYPES = ['translate', 'rewrite', 'extract_specs', 'seo', 'full', 'bulk_import_cleanup']
 const JOB_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled']
 
-const ProductContentJob = model.define('product_content_job', {
+export const ProductContentJob = model.define('product_content_job', {
   id: model.id().primaryKey(),
   type: model.enum(JOB_TYPES),
   product_id: model.text().nullable(),

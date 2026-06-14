@@ -8,12 +8,15 @@ import { describe, it, expect } from 'vitest'
 
 // ─── Inline validation logic ───────────────────────────────────────────────
 
-type MetadataField = {
+interface MetadataField {
   key: string
   type: string
 }
 
-type ValidationError = { field: string; message: string }
+interface ValidationError {
+  field: string
+  message: string
+}
 
 function validateMetadata(
   metadata: Record<string, unknown>,

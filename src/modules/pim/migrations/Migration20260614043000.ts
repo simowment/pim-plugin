@@ -26,8 +26,6 @@ export class Migration20260614043000 extends Migration {
   }
 
   override async down(): Promise<void> {
-    this.addSql(
-      `DROP INDEX IF EXISTS "IDX_product_metadata_field_key_unique";`,
-    )
+    this.addSql(`DROP INDEX IF EXISTS "IDX_product_metadata_field_key_unique";`)
   }
 }
