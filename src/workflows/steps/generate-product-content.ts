@@ -3,6 +3,11 @@ import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 import { resolvePimAiConfigFromContainer } from '../../lib/ai-config'
+import { getRecordId } from '../../lib/records'
+import type {
+  ProductContentJobStatus,
+  ProductContentJobType,
+} from '../../modules/pim/models/product-content-job'
 
 const GENERATION_MODES = ['translate', 'rewrite', 'extract_specs', 'seo', 'full'] as const
 const TONES = ['neutral', 'luxury', 'technical', 'seo'] as const
@@ -41,7 +46,7 @@ export const createJobStep = createStep(
   'create-content-job',
   async (
     input: {
-      type: string
+      type: ProductContentJobType
       product_id: string | null
       locale: string
       input_json: Record<string, unknown>
@@ -51,7 +56,7 @@ export const createJobStep = createStep(
   ) => {
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
     const job = await pim.createProductContentJobs({
-      type: input.type as any,
+      type: input.type,
       product_id: input.product_id ?? undefined,
       locale: input.locale,
       status: 'running',
@@ -59,19 +64,19 @@ export const createJobStep = createStep(
       result_json: null,
       error_message: null,
       created_by: input.created_by ?? null,
-      started_at: new Date() as any,
+      started_at: new Date(),
       completed_at: null,
     })
-    return new StepResponse(job, (job as any).id)
+    return new StepResponse(job, getRecordId(job, 'PIM generation job'))
   },
   async (jobId, { container }) => {
     if (!jobId) return
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
     await pim.updateProductContentJobs({
       id: jobId,
-      status: 'failed' as any,
+      status: 'failed',
       error_message: 'Generation workflow rolled back before completion.',
-      completed_at: new Date() as any,
+      completed_at: new Date(),
     })
   },
 )
@@ -219,7 +224,7 @@ export const finalizeJobStep = createStep(
   async (
     input: {
       job_id: string
-      status: 'completed' | 'failed'
+      status: Extract<ProductContentJobStatus, 'completed' | 'failed'>
       result: Record<string, unknown> | null
       error_message: string | null
     },
@@ -228,10 +233,10 @@ export const finalizeJobStep = createStep(
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
     const updated = await pim.updateProductContentJobs({
       id: input.job_id,
-      status: input.status as any,
+      status: input.status,
       result_json: input.result ?? null,
       error_message: input.error_message ?? null,
-      completed_at: new Date() as any,
+      completed_at: new Date(),
     })
     return new StepResponse(updated)
   },
@@ -262,7 +267,7 @@ function buildSystemPrompt(mode: string, tone: string, locale: string): string {
 Target locale: ${locale}.
 Tone: ${toneDesc}
 Respond with a single JSON object containing only the fields you generated.
-Fields may include: title, description, short_description, bullets_json (array), specifications_json (array of {key,label,value,unit,group}), seo_json ({title,description,keywords}).`
+Fields may include: title, description, short_description, variant_titles_json (array of {variant_id,title}), bullets_json (array), specifications_json (array of {key,label,value,unit,group}), seo_json ({title,description,keywords}).`
 }
 
 function buildUserPrompt(mode: string, existing: Record<string, unknown> | null): string {

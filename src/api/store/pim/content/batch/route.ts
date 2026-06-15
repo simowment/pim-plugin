@@ -2,7 +2,10 @@ import { MedusaRequest, MedusaResponse } from '@medusajs/framework/http'
 import { PIM_MODULE } from '../../../../../modules/pim'
 import type PimModuleService from '../../../../../modules/pim/service'
 import type { BatchContentSchema } from '../../../../middlewares'
-import { resolveBestPimContentRecord } from '../../../../../lib/specifications'
+import {
+  resolveBestPimContentRecord,
+  serializeStorefrontPimContent,
+} from '../../../../../lib/specifications'
 
 const PUBLISHED_STATUS = 'published'
 const DEFAULT_CHANNEL = process.env.PIM_DEFAULT_CHANNEL ?? 'storefront'
@@ -16,16 +19,23 @@ export async function POST(req: MedusaRequest<BatchContentSchema>, res: MedusaRe
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
   const resultMap = new Map<string, Record<string, unknown>>()
 
-  const [records] = await pim.listAndCountProductContents(
-    {
-      product_id: product_ids,
-      status: PUBLISHED_STATUS,
-    },
-    {
-      take: product_ids.length * CONTENT_RECORD_LIMIT_MULTIPLIER,
-      order: { published_at: 'DESC' },
-    },
-  )
+  const [contentResult, metadataFields] = await Promise.all([
+    pim.listAndCountProductContents(
+      {
+        product_id: product_ids,
+        status: PUBLISHED_STATUS,
+      },
+      {
+        take: product_ids.length * CONTENT_RECORD_LIMIT_MULTIPLIER,
+        order: { published_at: 'DESC' },
+      },
+    ),
+    pim.listProductMetadataFields(
+      { visible_in_storefront: true },
+      { order: { sort_order: 'ASC' } },
+    ),
+  ])
+  const [records] = contentResult
 
   const recordsByProduct = new Map<string, Array<Record<string, unknown>>>()
   for (const record of records as unknown as Array<Record<string, unknown>>) {
@@ -54,19 +64,7 @@ export async function POST(req: MedusaRequest<BatchContentSchema>, res: MedusaRe
   const contents = product_ids.map((id) => {
     const r = resultMap.get(id)
     if (!r) return { product_id: id, source: 'medusa_fallback' }
-    return {
-      product_id: r.product_id,
-      locale: r.locale,
-      channel: r.channel,
-      title: r.title ?? null,
-      description: r.description ?? null,
-      short_description: r.short_description ?? null,
-      bullets: r.bullets_json ?? null,
-      specifications: r.specifications_json ?? null,
-      seo: r.seo_json ?? null,
-      metadata: r.custom_metadata_json ?? null,
-      source: 'pim',
-    }
+    return serializeStorefrontPimContent(r, metadataFields)
   })
 
   res.json({ contents })

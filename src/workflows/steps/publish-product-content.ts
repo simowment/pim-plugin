@@ -2,10 +2,15 @@ import { createStep, StepResponse } from '@medusajs/framework/workflows-sdk'
 import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
+import type { ProductContentStatus } from '../../modules/pim/models/product-content'
 
-const PUBLISHABLE_STATUSES = ['draft', 'ai_generated', 'reviewed']
-const PUBLISHED_STATUS = 'published'
-const ARCHIVED_STATUS = 'archived'
+const PUBLISHABLE_STATUSES: ProductContentStatus[] = ['draft', 'ai_generated', 'reviewed']
+const PUBLISHED_STATUS: ProductContentStatus = 'published'
+const ARCHIVED_STATUS: ProductContentStatus = 'archived'
+
+type PublishedContentRecord = {
+  id: string
+}
 
 export interface PublishContentInput {
   content_id: string
@@ -20,7 +25,7 @@ export const publishProductContentStep = createStep(
 
     const content = await pim.retrieveProductContent(input.content_id)
 
-    if (!PUBLISHABLE_STATUSES.includes(content.status as string)) {
+    if (!PUBLISHABLE_STATUSES.includes(content.status as ProductContentStatus)) {
       throw new MedusaError(
         MedusaError.Types.UNEXPECTED_STATE,
         `Cannot publish content with status "${content.status}". Must be one of: ${PUBLISHABLE_STATUSES.join(', ')}`,
@@ -36,17 +41,17 @@ export const publishProductContentStep = createStep(
           product_id: content.product_id,
           locale: content.locale,
           channel: content.channel,
-          status: [PUBLISHED_STATUS] as any,
+          status: [PUBLISHED_STATUS],
         },
         {},
       )
 
-      for (const prev of published) {
-        if ((prev as any).id !== input.content_id) {
-          previousPublished.push((prev as any).id)
+      for (const prev of published as PublishedContentRecord[]) {
+        if (prev.id !== input.content_id) {
+          previousPublished.push(prev.id)
           await pim.updateProductContents({
-            id: (prev as any).id,
-            status: ARCHIVED_STATUS as any,
+            id: prev.id,
+            status: ARCHIVED_STATUS,
           })
         }
       }
@@ -54,8 +59,8 @@ export const publishProductContentStep = createStep(
 
     const updated = await pim.updateProductContents({
       id: input.content_id,
-      status: PUBLISHED_STATUS as any,
-      published_at: new Date() as any,
+      status: PUBLISHED_STATUS,
+      published_at: new Date(),
       updated_by: input.actor_id ?? null,
     })
 
@@ -72,7 +77,7 @@ export const publishProductContentStep = createStep(
     // Restore the published content back to its previous status
     await pim.updateProductContents({
       id: compensationData.content_id,
-      status: compensationData.previous_status as any,
+      status: compensationData.previous_status as ProductContentStatus,
       published_at: null,
     })
 
@@ -80,7 +85,7 @@ export const publishProductContentStep = createStep(
     for (const prevId of compensationData.previously_published) {
       await pim.updateProductContents({
         id: prevId,
-        status: PUBLISHED_STATUS as any,
+        status: PUBLISHED_STATUS,
       })
     }
   },

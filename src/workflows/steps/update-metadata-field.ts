@@ -7,9 +7,14 @@ import {
   normalizeMetadataFieldUpdateData,
   type MetadataFieldUpdateData,
 } from '../../lib/metadata-fields'
+import { getRecordId } from '../../lib/records'
 
 export interface UpdateMetadataFieldInput extends MetadataFieldUpdateData {
   id: string
+}
+type MetadataFieldPersistenceData = Omit<MetadataFieldUpdateData, 'options_json'> & {
+  id: string
+  options_json?: Record<string, unknown> | null
 }
 
 export const updateMetadataFieldStep = createStep(
@@ -25,7 +30,7 @@ export const updateMetadataFieldStep = createStep(
 
     if (data.key && data.key !== previous.key) {
       const [existing] = await pim.listAndCountProductMetadataFields({ key: data.key }, { take: 2 })
-      const conflicting = existing.find((field) => (field as any).id !== input.id)
+      const conflicting = existing.find((field) => getRecordId(field, 'PIM metadata field') !== input.id)
 
       if (conflicting) {
         throw new MedusaError(
@@ -35,7 +40,7 @@ export const updateMetadataFieldStep = createStep(
       }
     }
 
-    const updated = await pim.updateProductMetadataFields(data as any)
+    const updated = await pim.updateProductMetadataFields(data as MetadataFieldPersistenceData)
 
     return new StepResponse(updated, previous)
   },
@@ -43,6 +48,6 @@ export const updateMetadataFieldStep = createStep(
     if (!previous) return
 
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
-    await pim.updateProductMetadataFields(previous as any)
+    await pim.updateProductMetadataFields(previous)
   },
 )

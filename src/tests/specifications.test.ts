@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildPimGenerationSource,
+  mergeStorefrontSpecifications,
   normalizeSupplierSpecifications,
+  normalizeStorefrontMetadata,
+  normalizeStorefrontMetadataSpecifications,
   resolveBestPimContentRecord,
 } from '../lib/specifications'
 
@@ -114,6 +117,69 @@ describe('supplier specification normalization', () => {
     )
 
     expect(source.specifications_json).toEqual(storedSpecifications)
+  })
+
+  it('exposes visible custom metadata as storefront specifications', () => {
+    const metadata = {
+      care_instructions: ['Wipe clean', 'Air dry'],
+      internal_score: 92,
+      empty_field: '',
+    }
+    const fields = [
+      {
+        key: 'care_instructions',
+        label: 'Care instructions',
+        group: 'Care',
+        visible_in_storefront: true,
+      },
+      {
+        key: 'internal_score',
+        label: 'Internal score',
+        visible_in_storefront: false,
+      },
+      {
+        key: 'empty_field',
+        label: 'Empty field',
+        visible_in_storefront: true,
+      },
+    ]
+
+    expect(normalizeStorefrontMetadata(metadata, fields)).toEqual({
+      care_instructions: ['Wipe clean', 'Air dry'],
+    })
+    expect(normalizeStorefrontMetadataSpecifications(metadata, fields)).toEqual([
+      {
+        key: 'care_instructions',
+        label: 'Care instructions',
+        value: 'Wipe clean, Air dry',
+        group: 'Care',
+      },
+    ])
+  })
+
+  it('keeps authored specifications before visible metadata specifications', () => {
+    const authoredSpecifications = [
+      { key: 'care_instructions', label: 'Care', value: 'Use the PIM spec' },
+      { key: 'material', label: 'Material', value: 'PU' },
+    ]
+    const metadataSpecifications = [
+      {
+        key: 'care_instructions',
+        label: 'Care instructions',
+        value: 'Wipe clean',
+      },
+      {
+        key: 'dimensions',
+        label: 'Dimensions',
+        value: '10 cm',
+      },
+    ]
+
+    expect(mergeStorefrontSpecifications(authoredSpecifications, metadataSpecifications)).toEqual([
+      { key: 'care_instructions', label: 'Care', value: 'Use the PIM spec' },
+      { key: 'material', label: 'Material', value: 'PU' },
+      { key: 'dimensions', label: 'Dimensions', value: '10 cm' },
+    ])
   })
 
   it('resolves existing content by normalized language locale', () => {

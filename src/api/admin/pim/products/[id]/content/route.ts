@@ -3,6 +3,7 @@ import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../../../../../modules/pim'
 import type PimModuleService from '../../../../../../modules/pim/service'
 import { createOrUpdateProductContentWorkflow } from '../../../../../../workflows/create-or-update-product-content'
+import { getOptionalQueryString } from '../../../../../query-params'
 import type { UpsertContentSchema } from '../../../../../middlewares'
 import {
   filterPimContentRecords,
@@ -13,7 +14,8 @@ import {
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
   const { id: product_id } = req.params
-  const { locale, channel } = req.validatedQuery as { locale?: string; channel?: string }
+  const locale = getOptionalQueryString(req, 'locale')
+  const channel = getOptionalQueryString(req, 'channel')
 
   const filters: Record<string, unknown> = { product_id }
   if (channel) filters.channel = channel
@@ -29,7 +31,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const { data: products } = await query.graph({
     entity: 'product',
     filters: { id: product_id },
-    fields: ['id', 'metadata'],
+    fields: ['id', 'metadata', 'variants.id', 'variants.title'],
   })
   const product = products[0] as Record<string, unknown> | undefined
   const metadata =
@@ -40,10 +42,18 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   res.json({
     content: contents,
     supplier_specifications: normalizeSupplierSpecifications(metadata.attributes),
+    variants: (Array.isArray(product?.variants) ? product.variants : [])
+      .filter((variant): variant is Record<string, unknown> => {
+        return Boolean(variant) && typeof variant === 'object' && typeof variant.id === 'string'
+      })
+      .map((variant) => ({
+        id: variant.id,
+        title: typeof variant.title === 'string' ? variant.title : '',
+      })),
   })
 }
 
-// POST /admin/pim/products/:id/content — create or update draft
+// POST /admin/pim/products/:id/content - create or update draft
 export async function POST(
   req: AuthenticatedMedusaRequest<UpsertContentSchema>,
   res: MedusaResponse,

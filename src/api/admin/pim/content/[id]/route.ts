@@ -17,7 +17,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   res.json({ content })
 }
 
-// DELETE /admin/pim/content/:id — archives, does not hard-delete
+// DELETE /admin/pim/content/:id - archives, does not hard-delete
 export async function DELETE(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   const { id } = req.params
 

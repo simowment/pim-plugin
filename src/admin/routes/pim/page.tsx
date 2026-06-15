@@ -22,12 +22,20 @@ import {
 import { Plus, Trash, PencilSquare, ArrowPath, Sparkles } from '@medusajs/icons'
 import { sdk } from '../../lib/sdk'
 
+const AI_MODES = ['translate', 'rewrite', 'extract_specs', 'seo', 'full'] as const
+const AI_TONES = ['neutral', 'luxury', 'technical', 'seo'] as const
+
+type AiMode = (typeof AI_MODES)[number]
+type AiTone = (typeof AI_TONES)[number]
+type MetadataValue = string | number | boolean
+
 interface AdminProduct {
   id: string
   title: string
   handle?: string | null
   thumbnail?: string | null
   description?: string | null
+  variants?: Array<{ id: string; title?: string | null }>
 }
 
 interface BulletPoint {
@@ -43,6 +51,11 @@ interface Specification {
   group?: string
 }
 
+interface VariantTitle {
+  variant_id: string
+  title: string
+}
+
 interface PimContent {
   id: string
   product_id: string
@@ -52,6 +65,7 @@ interface PimContent {
   title: string | null
   description: string | null
   short_description: string | null
+  variant_titles_json: VariantTitle[] | null
   bullets_json: BulletPoint[] | null
   specifications_json: Specification[] | null
   seo_json: {
@@ -59,13 +73,14 @@ interface PimContent {
     description?: string
     keywords?: string[]
   } | null
-  custom_metadata_json: Record<string, any> | null
+  custom_metadata_json: Record<string, unknown> | null
   updated_at: string
 }
 
 interface ProductContentResponse {
   content: PimContent[]
   supplier_specifications: Specification[]
+  variants: Array<{ id: string; title: string }>
 }
 
 interface MetadataField {
@@ -83,8 +98,60 @@ interface MetadataField {
   visible_in_admin: boolean
   visible_in_storefront: boolean
   write_policy: string
-  validation_json?: Record<string, any> | null
+  validation_json?: Record<string, unknown> | null
   sort_order: number
+}
+
+interface ProductContentMutationBody {
+  locale?: string | null
+  channel?: string
+  title: string | null
+  short_description: string | null
+  description: string | null
+  bullets_json?: BulletPoint[] | null
+  variant_titles_json?: VariantTitle[] | null
+  specifications_json?: Specification[] | null
+  seo_json: {
+    title?: string
+    description?: string
+    keywords: string[]
+  }
+  custom_metadata_json?: Record<string, unknown> | null
+  change_reason: string
+}
+
+interface MetadataFieldMutationBody {
+  key: string
+  label: string
+  description: string
+  type: string
+  scope: string
+  group: string
+  required: boolean
+  localized: boolean
+  channel_specific: boolean
+  visible_in_admin: boolean
+  visible_in_storefront: boolean
+  options_json: Array<{ label: string; value: string }> | null
+}
+
+interface PimGeneratedResult {
+  title?: string | null
+  short_description?: string | null
+  description?: string | null
+  bullets_json?: BulletPoint[] | null
+  variant_titles_json?: VariantTitle[] | null
+  specifications_json?: Specification[] | null
+  seo_json?: {
+    title?: string
+    description?: string
+    keywords?: string[]
+  } | null
+  custom_metadata_json?: Record<string, unknown> | null
+}
+
+interface PimJobInput {
+  channel?: string | null
 }
 
 interface PimJob {
@@ -93,8 +160,8 @@ interface PimJob {
   product_id: string | null
   locale: string | null
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
-  input_json: any
-  result_json: any
+  input_json: PimJobInput | null
+  result_json: PimGeneratedResult | null
   error_message: string | null
   created_at: string
 }
@@ -154,12 +221,13 @@ const emptyForm = {
   title: '',
   short_description: '',
   description: '',
+  variant_titles_json: [] as VariantTitle[],
   bullets_json: [] as BulletPoint[],
   specifications_json: [] as Specification[],
   seo_title: '',
   seo_description: '',
   seo_keywords: '',
-  custom_metadata_json: {} as Record<string, any>,
+  custom_metadata_json: {} as Record<string, MetadataValue>,
   change_reason: '',
 }
 
@@ -181,6 +249,29 @@ const statusBadge = (status?: string | null) =>
       missing
     </Badge>
   )
+
+function isAiMode(value: string): value is AiMode {
+  return (AI_MODES as readonly string[]).includes(value)
+}
+
+function isAiTone(value: string): value is AiTone {
+  return (AI_TONES as readonly string[]).includes(value)
+}
+
+function normalizeMetadataValues(
+  metadata: Record<string, unknown> | null | undefined,
+): Record<string, MetadataValue> {
+  if (!metadata) {
+    return {}
+  }
+
+  return Object.fromEntries(
+    Object.entries(metadata).filter((entry): entry is [string, MetadataValue] => {
+      const value = entry[1]
+      return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    }),
+  )
+}
 
 const PimPage = () => {
   const [activeTab, setActiveTab] = useState('products')
@@ -232,8 +323,8 @@ function ProductsTab() {
   const productsPerPage = 10
 
   // AI Generation configuration
-  const [aiMode, setAiMode] = useState<'translate' | 'rewrite' | 'extract_specs' | 'seo' | 'full'>('translate')
-  const [aiTone, setAiTone] = useState<'neutral' | 'luxury' | 'technical' | 'seo'>('neutral')
+  const [aiMode, setAiMode] = useState<AiMode>('translate')
+  const [aiTone, setAiTone] = useState<AiTone>('neutral')
   const [aiSourceLocale, setAiSourceLocale] = useState('fr')
   const [editorTab, setEditorTab] = useState<'copy' | 'specs' | 'seo_ai'>('copy')
 
@@ -274,7 +365,7 @@ function ProductsTab() {
         limit: productsPerPage,
         offset: productPage * productsPerPage,
         q: search || undefined,
-        fields: 'id,title,handle,thumbnail,description',
+        fields: 'id,title,handle,thumbnail,description,variants.id,variants.title',
       } as Record<string, unknown>) as Promise<{ products: AdminProduct[]; count: number }>,
   })
 
@@ -316,6 +407,16 @@ function ProductsTab() {
     activeContent?.specifications_json?.length
       ? activeContent.specifications_json
       : (contentQuery.data?.supplier_specifications ?? [])
+  const displayedVariantTitles = useMemo(
+    () =>
+      activeContent?.variant_titles_json?.length
+        ? activeContent.variant_titles_json
+        : (contentQuery.data?.variants ?? selectedProduct?.variants ?? []).map((variant) => ({
+            variant_id: variant.id,
+            title: variant.title ?? '',
+          })),
+    [activeContent?.variant_titles_json, contentQuery.data?.variants, selectedProduct?.variants],
+  )
 
   // Detect draft dirtiness
   const isDirty = useMemo(() => {
@@ -326,12 +427,13 @@ function ProductsTab() {
     const initialSeoTitle = String(activeContent?.seo_json?.title ?? '')
     const initialSeoDesc = String(activeContent?.seo_json?.description ?? '')
     const initialSeoKeywords = Array.isArray(activeContent?.seo_json?.keywords)
-      ? (activeContent?.seo_json?.keywords as string[]).join(', ')
+      ? activeContent.seo_json.keywords.join(', ')
       : ''
 
     const initialBullets = activeContent?.bullets_json ?? []
+    const initialVariantTitles = displayedVariantTitles
     const initialSpecs = displayedSpecifications
-    const initialMetadata = activeContent?.custom_metadata_json ?? {}
+    const initialMetadata = normalizeMetadataValues(activeContent?.custom_metadata_json)
 
     if (form.title !== initialTitle) return true
     if (form.short_description !== initialShortDesc) return true
@@ -340,29 +442,38 @@ function ProductsTab() {
     if (form.seo_description !== initialSeoDesc) return true
     if (form.seo_keywords !== initialSeoKeywords) return true
 
+    if (JSON.stringify(form.variant_titles_json) !== JSON.stringify(initialVariantTitles)) return true
     if (JSON.stringify(form.bullets_json) !== JSON.stringify(initialBullets)) return true
     if (JSON.stringify(form.specifications_json) !== JSON.stringify(initialSpecs)) return true
     if (JSON.stringify(form.custom_metadata_json) !== JSON.stringify(initialMetadata)) return true
 
     return false
-  }, [form, activeContent, selectedProduct, displayedSpecifications])
+  }, [form, activeContent, selectedProduct, displayedSpecifications, displayedVariantTitles])
 
   useEffect(() => {
     setForm({
       title: activeContent?.title ?? selectedProduct?.title ?? '',
       short_description: activeContent?.short_description ?? '',
       description: activeContent?.description ?? selectedProduct?.description ?? '',
+      variant_titles_json: displayedVariantTitles,
       bullets_json: activeContent?.bullets_json ?? [],
       specifications_json: displayedSpecifications,
       seo_title: String(activeContent?.seo_json?.title ?? ''),
       seo_description: String(activeContent?.seo_json?.description ?? ''),
       seo_keywords: Array.isArray(activeContent?.seo_json?.keywords)
-        ? (activeContent?.seo_json?.keywords as string[]).join(', ')
+        ? activeContent.seo_json.keywords.join(', ')
         : '',
-      custom_metadata_json: activeContent?.custom_metadata_json ?? {},
+      custom_metadata_json: normalizeMetadataValues(activeContent?.custom_metadata_json),
       change_reason: '',
     })
-  }, [activeContent?.id, selectedProductId, locale, channel, contentQuery.data?.supplier_specifications])
+  }, [
+    activeContent?.id,
+    selectedProductId,
+    locale,
+    channel,
+    contentQuery.data?.supplier_specifications,
+    contentQuery.data?.variants,
+  ])
 
   const confirmSwitch = () => {
     if (isDirty) {
@@ -406,6 +517,7 @@ function ProductsTab() {
           title: form.title || null,
           short_description: form.short_description || null,
           description: form.description || null,
+          variant_titles_json: form.variant_titles_json,
           bullets_json: form.bullets_json,
           specifications_json: form.specifications_json,
           seo_json: {
@@ -485,6 +597,14 @@ function ProductsTab() {
     setForm({ ...form, bullets_json: nextBullets })
   }
 
+  const updateVariantTitle = (variantId: string, title: string) => {
+    const existing = form.variant_titles_json.filter((item) => item.variant_id !== variantId)
+    setForm({
+      ...form,
+      variant_titles_json: [...existing, { variant_id: variantId, title }],
+    })
+  }
+
   // Specifications handlers
   const addSpec = () => {
     setForm({
@@ -508,7 +628,7 @@ function ProductsTab() {
   }
 
   // Metadata value setter
-  const setMetadataValue = (key: string, value: any) => {
+  const setMetadataValue = (key: string, value: MetadataValue) => {
     setForm({
       ...form,
       custom_metadata_json: {
@@ -725,6 +845,47 @@ function ProductsTab() {
                       </Field>
                     </div>
 
+                    <div className="space-y-3 pt-4">
+                      <div className="border-b pb-2">
+                        <Text size="base" weight="plus">
+                          Variant Names
+                        </Text>
+                        <Text size="small" leading="compact" className="text-ui-fg-subtle">
+                          Translate customer-facing variant names for the selected locale and channel.
+                        </Text>
+                      </div>
+                      <div className="space-y-2">
+                        {(contentQuery.data?.variants ?? selectedProduct?.variants ?? []).map((variant) => {
+                          const translatedTitle =
+                            form.variant_titles_json.find((item) => item.variant_id === variant.id)
+                              ?.title ?? variant.title ?? ''
+
+                          return (
+                            <div key={variant.id} className="grid grid-cols-1 gap-2 rounded-lg border bg-ui-bg-subtle p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
+                              <div className="min-w-0">
+                                <Text size="small" leading="compact" weight="plus" className="truncate">
+                                  {variant.title || variant.id}
+                                </Text>
+                                <Text size="xsmall" leading="compact" className="truncate text-ui-fg-subtle">
+                                  {variant.id}
+                                </Text>
+                              </div>
+                              <Input
+                                value={translatedTitle}
+                                onChange={(event) => updateVariantTitle(variant.id, event.target.value)}
+                                placeholder="Localized variant name"
+                              />
+                            </div>
+                          )
+                        })}
+                        {(contentQuery.data?.variants ?? selectedProduct?.variants ?? []).length === 0 && (
+                          <Text size="small" className="text-ui-fg-subtle">
+                            No variants found for this product.
+                          </Text>
+                        )}
+                      </div>
+                    </div>
+
                     {/* Bullet Points Repeating Field */}
                     <div className="space-y-3 pt-4">
                       <div className="flex items-center justify-between border-b pb-2">
@@ -776,7 +937,8 @@ function ProductsTab() {
                       {contentMetadataFields.length > 0 ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {contentMetadataFields.map((field) => {
-                            const value = form.custom_metadata_json[field.key] ?? ''
+                            const rawValue = form.custom_metadata_json[field.key]
+                            const value = rawValue === undefined ? '' : String(rawValue)
                             return (
                               <div key={field.id} className="flex flex-col gap-2 p-3 bg-ui-bg-subtle rounded-lg border">
                                 <Label className="flex justify-between items-center">
@@ -792,10 +954,10 @@ function ProductsTab() {
                                 {field.type === 'boolean' ? (
                                   <div className="flex items-center gap-2 py-1">
                                     <Switch
-                                      checked={Boolean(value)}
+                                      checked={rawValue === true}
                                       onCheckedChange={(checked) => setMetadataValue(field.key, checked)}
                                     />
-                                    <Text size="small">{Boolean(value) ? 'Yes' : 'No'}</Text>
+                                    <Text size="small">{rawValue === true ? 'Yes' : 'No'}</Text>
                                   </div>
                                 ) : field.type === 'text' ? (
                                   <Textarea
@@ -991,7 +1153,15 @@ function ProductsTab() {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div className="flex flex-col gap-1">
                           <Label className="text-[10px] text-ui-fg-subtle">Action Mode</Label>
-                          <Select size="small" value={aiMode} onValueChange={(val: any) => setAiMode(val)}>
+                          <Select
+                            size="small"
+                            value={aiMode}
+                            onValueChange={(value) => {
+                              if (isAiMode(value)) {
+                                setAiMode(value)
+                              }
+                            }}
+                          >
                             <Select.Trigger>
                               <Select.Value />
                             </Select.Trigger>
@@ -1007,7 +1177,15 @@ function ProductsTab() {
 
                         <div className="flex flex-col gap-1">
                           <Label className="text-[10px] text-ui-fg-subtle">Brand Tone</Label>
-                          <Select size="small" value={aiTone} onValueChange={(val: any) => setAiTone(val)}>
+                          <Select
+                            size="small"
+                            value={aiTone}
+                            onValueChange={(value) => {
+                              if (isAiTone(value)) {
+                                setAiTone(value)
+                              }
+                            }}
+                          >
                             <Select.Trigger>
                               <Select.Value />
                             </Select.Trigger>
@@ -1371,22 +1549,23 @@ function JobsTab() {
   const jobs = data?.jobs ?? []
 
   const handleReviewClick = (job: PimJob) => {
-    const result = job.result_json ?? {}
+    const result = job.result_json
+    const seo = result?.seo_json
     setReviewJob(job)
     setReviewForm({
-      title: result.title ?? '',
-      short_description: result.short_description ?? '',
-      description: result.description ?? '',
-      seo_title: result.seo_json?.title ?? '',
-      seo_description: result.seo_json?.description ?? '',
-      seo_keywords: Array.isArray(result.seo_json?.keywords)
-        ? (result.seo_json.keywords as string[]).join(', ')
+      title: result?.title ?? '',
+      short_description: result?.short_description ?? '',
+      description: result?.description ?? '',
+      seo_title: seo?.title ?? '',
+      seo_description: seo?.description ?? '',
+      seo_keywords: Array.isArray(seo?.keywords)
+        ? seo.keywords.join(', ')
         : '',
     })
   }
 
   const approveMutation = useMutation({
-    mutationFn: (body: any) =>
+    mutationFn: (body: ProductContentMutationBody) =>
       sdk.client.fetch(`/admin/pim/products/${reviewJob?.product_id}/content`, {
         method: 'POST',
         body,
@@ -1405,12 +1584,13 @@ function JobsTab() {
     if (!reviewJob) return
     approveMutation.mutate({
       locale: reviewJob.locale,
-      channel: reviewJob.input_json?.channel || 'storefront',
+      channel: reviewJob.input_json?.channel ?? 'storefront',
       title: reviewForm.title || null,
       short_description: reviewForm.short_description || null,
       description: reviewForm.description || null,
-      bullets_json: reviewJob.result_json?.bullets_json || null,
-      specifications_json: reviewJob.result_json?.specifications_json || null,
+      bullets_json: reviewJob.result_json?.bullets_json ?? null,
+      variant_titles_json: reviewJob.result_json?.variant_titles_json ?? null,
+      specifications_json: reviewJob.result_json?.specifications_json ?? null,
       seo_json: {
         title: reviewForm.seo_title || undefined,
         description: reviewForm.seo_description || undefined,
@@ -1419,7 +1599,7 @@ function JobsTab() {
           .map((k) => k.trim())
           .filter(Boolean),
       },
-      custom_metadata_json: reviewJob.result_json?.custom_metadata_json || null,
+      custom_metadata_json: reviewJob.result_json?.custom_metadata_json ?? null,
       change_reason: 'Approved AI generated copy from queue',
     })
   }
@@ -1635,7 +1815,7 @@ function MetadataFieldsTab() {
   })
 
   const createMutation = useMutation({
-    mutationFn: (body: any) =>
+    mutationFn: (body: MetadataFieldMutationBody) =>
       sdk.client.fetch('/admin/pim/metadata-fields', {
         method: 'POST',
         body,
@@ -1663,7 +1843,7 @@ function MetadataFieldsTab() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: (body: any) =>
+    mutationFn: (body: MetadataFieldMutationBody) =>
       sdk.client.fetch(`/admin/pim/metadata-fields/${editField?.id}`, {
         method: 'POST',
         body,
@@ -1697,7 +1877,7 @@ function MetadataFieldsTab() {
         }
         return null
       })
-      .filter(Boolean) as Array<{ label: string; value: string }>
+      .filter((option): option is { label: string; value: string } => option !== null)
 
     createMutation.mutate({
       ...newField,

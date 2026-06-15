@@ -2,8 +2,15 @@ import { createStep, StepResponse } from '@medusajs/framework/workflows-sdk'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 import { PIM_MUTABLE_STATUSES, resolveBestPimContentRecord } from '../../lib/specifications'
+import { getRecordId, type IdentifiableRecord } from '../../lib/records'
+import type {
+  ProductContentSource,
+  ProductContentStatus,
+} from '../../modules/pim/models/product-content'
+import type { ProductContentVersionActorType } from '../../modules/pim/models/product-content-version'
 
-const DRAFT_STATUS = 'draft'
+const DRAFT_STATUS: ProductContentStatus = 'draft'
+const DEFAULT_CHANNEL = 'storefront'
 
 export interface CreateOrUpdateContentInput {
   product_id: string
@@ -12,13 +19,14 @@ export interface CreateOrUpdateContentInput {
   title?: string | null
   description?: string | null
   short_description?: string | null
+  variant_titles_json?: unknown[] | null
   bullets_json?: unknown[] | null
   specifications_json?: unknown[] | null
   seo_json?: Record<string, unknown> | null
   custom_metadata_json?: Record<string, unknown> | null
   raw_source_json?: Record<string, unknown> | null
-  source?: 'supplier' | 'manual' | 'ai' | 'import' | 'directus' | 'agent'
-  status?: string
+  source?: ProductContentSource
+  status?: ProductContentStatus
   created_by?: string | null
   updated_by?: string | null
   change_reason?: string
@@ -30,19 +38,23 @@ export interface CreateOrUpdateContentOutput {
   previous_snapshot: Record<string, unknown> | null
 }
 
+type ProductContentRecord = IdentifiableRecord & {
+  custom_metadata_json?: Record<string, unknown> | null
+}
+
 export const createOrUpdateProductContentStep = createStep(
   'create-or-update-product-content',
   async (input: CreateOrUpdateContentInput, { container }) => {
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
 
-    const channel = input.channel ?? 'storefront'
+    const channel = input.channel ?? DEFAULT_CHANNEL
 
     // Find the existing mutable draft for this product/language/channel.
     const [existingRecords] = await pim.listAndCountProductContents(
       {
         product_id: input.product_id,
         channel,
-        status: [...PIM_MUTABLE_STATUSES] as any,
+        status: [...PIM_MUTABLE_STATUSES] as ProductContentStatus[],
       },
       { take: 100, order: { updated_at: 'DESC' } },
     )
@@ -51,9 +63,9 @@ export const createOrUpdateProductContentStep = createStep(
       (resolveBestPimContentRecord(existingRecords as unknown as Array<Record<string, unknown>>, {
         locale: input.locale,
         channel,
-        defaultChannel: 'storefront',
+        defaultChannel: DEFAULT_CHANNEL,
         statuses: PIM_MUTABLE_STATUSES,
-      }) as (Record<string, unknown> & { id: string }) | null) ?? null
+      }) as ProductContentRecord | null) ?? null
     const previousSnapshot: Record<string, unknown> | null = existing ? { ...existing } : null
 
     const contentData = {
@@ -63,6 +75,10 @@ export const createOrUpdateProductContentStep = createStep(
       title: input.title ?? null,
       description: input.description ?? null,
       short_description: input.short_description ?? null,
+      variant_titles_json: (input.variant_titles_json ?? null) as unknown as Record<
+        string,
+        unknown
+      > | null,
       bullets_json: (input.bullets_json ?? null) as unknown as Record<string, unknown> | null,
       specifications_json: (input.specifications_json ?? null) as unknown as Record<
         string,
@@ -87,7 +103,7 @@ export const createOrUpdateProductContentStep = createStep(
     } else {
       const created = await pim.createProductContents({
         ...contentData,
-        status: (input.status as any) ?? DRAFT_STATUS,
+        status: input.status ?? DRAFT_STATUS,
         created_by: input.created_by ?? null,
       })
       content = created as unknown as Record<string, unknown>
@@ -96,7 +112,7 @@ export const createOrUpdateProductContentStep = createStep(
 
     return new StepResponse(
       { content, is_new: isNew, previous_snapshot: previousSnapshot },
-      { contentId: (content as any).id, isNew, previousSnapshot },
+      { contentId: getRecordId(content, 'PIM content'), isNew, previousSnapshot },
     )
   },
   // Compensation: restore or delete on rollback
@@ -122,7 +138,7 @@ export const appendContentVersionStep = createStep(
     input: {
       content_id: string
       snapshot: Record<string, unknown>
-      actor_type?: 'admin' | 'agent' | 'system'
+      actor_type?: ProductContentVersionActorType
       actor_id?: string | null
       change_reason?: string
     },
@@ -144,11 +160,11 @@ export const appendContentVersionStep = createStep(
       version: nextVersion,
       snapshot_json: input.snapshot,
       change_reason: input.change_reason ?? null,
-      actor_type: (input.actor_type as any) ?? 'admin',
+      actor_type: input.actor_type ?? 'admin',
       actor_id: input.actor_id ?? null,
     })
 
-    return new StepResponse(version, (version as any).id)
+    return new StepResponse(version, getRecordId(version, 'PIM content version'))
   },
   async (versionId, { container }) => {
     if (!versionId) return

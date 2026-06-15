@@ -1,5 +1,6 @@
 import {
   createWorkflow,
+  type ReturnWorkflow,
   transform,
   WorkflowResponse,
   when,
@@ -15,6 +16,7 @@ import {
   appendContentVersionStep,
 } from './steps/create-or-update-product-content'
 import { hasUsableSpecifications } from '../lib/specifications'
+import { getRecordId } from '../lib/records'
 
 export interface GenerateProductContentInput {
   product_id: string
@@ -29,7 +31,27 @@ export interface GenerateProductContentInput {
   existing_content?: Record<string, unknown> | null
 }
 
-export const generateProductContentWorkflow: any = createWorkflow(
+type GeneratedProductContentFields = {
+  title?: string | null
+  description?: string | null
+  short_description?: string | null
+  variant_titles_json?: unknown[] | null
+  bullets_json?: unknown[] | null
+  specifications_json?: unknown[] | null
+  seo_json?: Record<string, unknown> | null
+}
+
+type GenerateProductContentWorkflowOutput = {
+  job: unknown
+  generated: Record<string, unknown>
+  content: unknown
+}
+
+export const generateProductContentWorkflow: ReturnWorkflow<
+  GenerateProductContentInput,
+  GenerateProductContentWorkflowOutput,
+  []
+> = createWorkflow(
   'generate-product-content',
   function (input: GenerateProductContentInput) {
     // 1. Create the job record
@@ -60,7 +82,7 @@ export const generateProductContentWorkflow: any = createWorkflow(
 
     // 3. Finalize job for both completed and failed outcomes.
     const finalizeInput = transform({ job, aiResult }, ({ job, aiResult }) => ({
-      job_id: (job as any).id as string,
+      job_id: getRecordId(job, 'PIM generation job'),
       status: aiResult.status,
       result: aiResult.generated,
       error_message: aiResult.error_message,
@@ -77,23 +99,25 @@ export const generateProductContentWorkflow: any = createWorkflow(
 
     // 4. Save as draft if requested
     const contentInput = transform({ generated, input }, ({ generated, input }) => {
-      const generatedSpecs = (generated as any).specifications_json
+      const generatedContent = generated as GeneratedProductContentFields
+      const generatedSpecs = generatedContent.specifications_json
       const existingSpecs = input.existing_content?.specifications_json
 
       return {
         product_id: input.product_id,
         locale: input.target_locale,
         channel: input.channel ?? 'storefront',
-        title: (generated as any).title ?? null,
-        description: (generated as any).description ?? null,
-        short_description: (generated as any).short_description ?? null,
-        bullets_json: (generated as any).bullets_json ?? null,
+        title: generatedContent.title ?? null,
+        description: generatedContent.description ?? null,
+        short_description: generatedContent.short_description ?? null,
+        variant_titles_json: generatedContent.variant_titles_json ?? null,
+        bullets_json: generatedContent.bullets_json ?? null,
         specifications_json: hasUsableSpecifications(generatedSpecs)
           ? generatedSpecs
           : hasUsableSpecifications(existingSpecs)
             ? existingSpecs
             : null,
-        seo_json: (generated as any).seo_json ?? null,
+        seo_json: generatedContent.seo_json ?? null,
         source: 'ai' as const,
         status: 'ai_generated' as const,
         created_by: input.created_by ?? null,
@@ -108,7 +132,7 @@ export const generateProductContentWorkflow: any = createWorkflow(
     ).then(() => {
       const content = createOrUpdateProductContentStep(contentInput)
       const versionInput = transform({ content }, ({ content }) => ({
-        content_id: (content.content as any).id as string,
+        content_id: getRecordId(content.content, 'Generated PIM content'),
         snapshot: content.content as Record<string, unknown>,
         actor_type: 'system' as const,
         actor_id: null,

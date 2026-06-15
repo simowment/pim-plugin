@@ -1,11 +1,19 @@
 import { AuthenticatedMedusaRequest, MedusaResponse } from '@medusajs/framework/http'
 import { PIM_MODULE } from '../../../../modules/pim'
 import type PimModuleService from '../../../../modules/pim/service'
+import type { ListJobsQuery } from '../../../middlewares'
+
+interface QueryConfigWithPagination {
+  pagination?: {
+    take?: number
+    skip?: number
+  }
+}
 
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
-  const { status, type, product_id } = req.validatedQuery as any
-  const { pagination } = req.queryConfig as any
+  const { status, type, product_id } = req.validatedQuery as ListJobsQuery
+  const { pagination } = req.queryConfig as QueryConfigWithPagination
 
   const filters: Record<string, unknown> = {}
   if (status) filters.status = status

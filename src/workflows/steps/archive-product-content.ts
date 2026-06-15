@@ -2,11 +2,14 @@ import { createStep, StepResponse } from '@medusajs/framework/workflows-sdk'
 import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
+import type { ProductContentStatus } from '../../modules/pim/models/product-content'
 
 export interface ArchiveProductContentInput {
   id: string
   actor_id?: string | null
 }
+
+const ARCHIVED_STATUS: ProductContentStatus = 'archived'
 
 export const archiveProductContentStep = createStep(
   'archive-product-content',
@@ -23,7 +26,7 @@ export const archiveProductContentStep = createStep(
 
     await pim.updateProductContents({
       id: input.id,
-      status: 'archived' as any,
+      status: ARCHIVED_STATUS,
       updated_by: input.actor_id ?? null,
     })
 
@@ -42,7 +45,7 @@ export const archiveProductContentStep = createStep(
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
     await pim.updateProductContents({
       id: previous.id,
-      status: previous.previous_status as any,
+      status: previous.previous_status as ProductContentStatus,
       updated_by: previous.previous_updated_by,
     })
   },

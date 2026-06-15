@@ -34,6 +34,7 @@
   "files": [
     ".env.example",
     ".medusa/server",
+    "src",
     "LICENSE",
     "README.md"
   ],

@@ -7,8 +7,12 @@ import {
   normalizeMetadataFieldData,
   type MetadataFieldData,
 } from '../../lib/metadata-fields'
+import { getRecordId } from '../../lib/records'
 
 export interface CreateMetadataFieldInput extends MetadataFieldData {}
+type MetadataFieldPersistenceData = Omit<MetadataFieldData, 'options_json'> & {
+  options_json?: Record<string, unknown> | null
+}
 
 export const createMetadataFieldStep = createStep(
   'create-metadata-field',
@@ -29,9 +33,9 @@ export const createMetadataFieldStep = createStep(
       )
     }
 
-    const field = await pim.createProductMetadataFields(data as any)
+    const field = await pim.createProductMetadataFields(data as MetadataFieldPersistenceData)
 
-    return new StepResponse(field, (field as any).id)
+    return new StepResponse(field, getRecordId(field, 'PIM metadata field'))
   },
   async (fieldId, { container }) => {
     if (!fieldId) return

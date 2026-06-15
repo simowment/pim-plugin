@@ -9,6 +9,7 @@ Medusa v2 plugin for lightweight Product Information Management (PIM) — produc
 - SEO metadata management (title, description, keywords) per locale/channel.
 - Custom metadata field definitions with configurable types (string, text, number, boolean, select, multiselect, json, url), scopes (product, variant, content), write policies, and per-field visibility flags.
 - AI-powered content generation modes: translate, rewrite, extract_specs, seo, and full, with configurable tone (neutral, luxury, technical, seo) and provider (OpenRouter, Kilocode, or any OpenAI-compatible API).
+- Generic supplier-import ingestion via the `pim.product_imported` event.
 - Content versioning — every create/update/publish snapshots the full record with actor metadata and change reason.
 - Content publishing workflow with automatic archival of previous published versions.
 - Versioned job tracking for AI generation requests with status lifecycle (queued → running → completed/failed).
@@ -196,6 +197,7 @@ src/
 
 - Each content record is uniquely identified by `(product_id, locale, channel)` — a product can have independent content per locale and per channel (e.g., storefront, Google, Meta).
 - The AI generation workflow uses OpenRouter by default (OpenAI-compatible). API keys are resolved server-side from environment variables and never reach the client.
+- Imported product content is source-agnostic. External connectors should emit `pim.product_imported`; the payload should identify the supplier with `supplier_id` and `supplier_product_id`.
 - Storefront routes return published content only and include a fallback to Medusa's native product fields when no PIM content exists.
 - Metadata field keys must be defined in `product_metadata_field` before being written via the `/metadata` endpoint (or pass `allow_unknown_keys: true` to bypass).
 - Content versions are immutable snapshots created on every save and publish, enabling audit trails and rollback capability.

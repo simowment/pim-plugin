@@ -6,8 +6,16 @@ export interface PimSpecification {
   group?: string
 }
 
+export interface StorefrontMetadataField {
+  key: string
+  label: string
+  group?: string | null
+  visible_in_storefront?: boolean
+}
+
 export const PIM_ACTIVE_STATUSES = ['draft', 'ai_generated', 'reviewed', 'published'] as const
 export const PIM_MUTABLE_STATUSES = ['draft', 'ai_generated', 'reviewed'] as const
+const STOREFRONT_METADATA_GROUP = 'pim'
 
 interface ProductSource {
   title?: unknown
@@ -46,6 +54,28 @@ function specificationValue(value: unknown): string {
       .join(', ')
   }
   return ''
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isPimSpecification(value: unknown): value is PimSpecification {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  return (
+    typeof value.key === 'string' &&
+    typeof value.label === 'string' &&
+    typeof value.value === 'string'
+  )
+}
+
+function visibleMetadataFields(
+  fields: readonly StorefrontMetadataField[],
+): StorefrontMetadataField[] {
+  return fields.filter((field) => field.visible_in_storefront === true)
 }
 
 export function normalizePimLocale(locale: unknown): string {
@@ -210,6 +240,103 @@ export function normalizeSupplierSpecifications(attributes: unknown): PimSpecifi
   }
 
   return specifications
+}
+
+export function normalizeStorefrontMetadata(
+  metadata: unknown,
+  fields: readonly StorefrontMetadataField[],
+): Record<string, unknown> {
+  if (!isRecord(metadata)) {
+    return {}
+  }
+
+  const entries = visibleMetadataFields(fields)
+    .map((field) => [field.key, metadata[field.key]] as const)
+    .filter(([, value]) => specificationValue(value))
+
+  return Object.fromEntries(entries)
+}
+
+export function normalizeStorefrontMetadataSpecifications(
+  metadata: unknown,
+  fields: readonly StorefrontMetadataField[],
+): PimSpecification[] {
+  if (!isRecord(metadata)) {
+    return []
+  }
+
+  const specifications: PimSpecification[] = []
+  const seen = new Set<string>()
+
+  for (const field of visibleMetadataFields(fields)) {
+    const key = field.key.trim()
+    const label = field.label.trim()
+    const value = specificationValue(metadata[field.key])
+
+    if (!key || !label || !value || seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    specifications.push({
+      key,
+      label,
+      value,
+      group: field.group ?? STOREFRONT_METADATA_GROUP,
+    })
+  }
+
+  return specifications
+}
+
+export function mergeStorefrontSpecifications(
+  specifications: unknown,
+  metadataSpecifications: PimSpecification[],
+): PimSpecification[] {
+  const baseSpecifications = Array.isArray(specifications)
+    ? specifications.filter(isPimSpecification)
+    : []
+  const seen = new Set(baseSpecifications.map((specification) => specification.key))
+  const additions = metadataSpecifications.filter((specification) => {
+    if (seen.has(specification.key)) {
+      return false
+    }
+
+    seen.add(specification.key)
+    return true
+  })
+
+  return [...baseSpecifications, ...additions]
+}
+
+export function serializeStorefrontPimContent(
+  record: ContentRecord,
+  metadataFields: readonly StorefrontMetadataField[],
+): Record<string, unknown> {
+  const metadataSpecifications = normalizeStorefrontMetadataSpecifications(
+    record.custom_metadata_json,
+    metadataFields,
+  )
+  const specifications = mergeStorefrontSpecifications(
+    record.specifications_json,
+    metadataSpecifications,
+  )
+  const storefrontMetadata = normalizeStorefrontMetadata(record.custom_metadata_json, metadataFields)
+
+  return {
+    product_id: record.product_id,
+    locale: record.locale,
+    channel: record.channel,
+    title: record.title ?? null,
+    description: record.description ?? null,
+    short_description: record.short_description ?? null,
+    variant_titles: record.variant_titles_json ?? null,
+    bullets: record.bullets_json ?? null,
+    specifications: specifications.length > 0 ? specifications : null,
+    seo: record.seo_json ?? null,
+    metadata: Object.keys(storefrontMetadata).length > 0 ? storefrontMetadata : null,
+    source: 'pim',
+  }
 }
 
 export function buildPimGenerationSource(

@@ -32,10 +32,11 @@ export async function POST(
   // Fetch existing content for the source language to enrich rather than overwrite.
   // Locale matching is language-normalized so "fr", "FR_fr", and "fr-FR" share specs.
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
+  const activeStatuses = [...PIM_ACTIVE_STATUSES]
   const [existingRecords] = await pim.listAndCountProductContents(
     {
       product_id,
-      status: [...PIM_ACTIVE_STATUSES] as any,
+      status: activeStatuses,
     },
     { take: 100, order: { updated_at: 'DESC' } },
   )

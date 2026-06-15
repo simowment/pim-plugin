@@ -1,0 +1,63 @@
+import { z } from 'zod'
+import type { CreateOrUpdateContentInput } from '../workflows/steps/create-or-update-product-content'
+import { normalizeSupplierSpecifications } from './specifications'
+
+export const PIM_PRODUCT_IMPORTED_EVENT = 'pim.product_imported'
+
+const PRODUCT_IMPORTED_EVENT_VERSION = 1
+const PRODUCT_IMPORT_CHANGE_REASON = 'supplier_import'
+const PRODUCT_IMPORT_SOURCE = 'import'
+const DRAFT_STATUS = 'draft'
+const DEFAULT_CHANNEL = 'storefront'
+const DEFAULT_LOCALE = 'en'
+
+const VariantTitleSchema = z.object({
+  variant_id: z.string().min(1),
+  title: z.string(),
+})
+
+export const ImportedProductPayloadSchema = z.object({
+  version: z.literal(PRODUCT_IMPORTED_EVENT_VERSION),
+  product_id: z.string().min(1),
+  external_product_id: z.string().min(1).nullable().optional(),
+  supplier_id: z.string().min(1),
+  supplier_product_id: z.string().min(1),
+  locale: z.string().min(1).default(DEFAULT_LOCALE),
+  channel: z.string().min(1).default(DEFAULT_CHANNEL),
+  title: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  short_description: z.string().nullable().optional(),
+  attributes: z.record(z.string(), z.unknown()).default({}),
+  variant_titles: z.array(VariantTitleSchema).default([]),
+  raw_source: z.record(z.string(), z.unknown()).default({}),
+})
+
+export type ImportedProductPayload = z.infer<typeof ImportedProductPayloadSchema>
+
+export function buildImportedProductContentInput(payload: unknown): CreateOrUpdateContentInput {
+  const parsed = ImportedProductPayloadSchema.parse(payload)
+  const specifications = normalizeSupplierSpecifications(parsed.attributes)
+
+  return {
+    product_id: parsed.product_id,
+    locale: parsed.locale,
+    channel: parsed.channel,
+    title: parsed.title ?? null,
+    description: parsed.description ?? null,
+    short_description: parsed.short_description ?? null,
+    variant_titles_json: parsed.variant_titles.length > 0 ? parsed.variant_titles : null,
+    specifications_json: specifications.length > 0 ? specifications : null,
+    raw_source_json: {
+      ...parsed.raw_source,
+      supplier: parsed.supplier_id,
+      supplier_product_id: parsed.supplier_product_id,
+      external_product_id: parsed.external_product_id ?? null,
+      attributes: parsed.attributes,
+    },
+    source: PRODUCT_IMPORT_SOURCE,
+    status: DRAFT_STATUS,
+    created_by: null,
+    updated_by: null,
+    change_reason: PRODUCT_IMPORT_CHANGE_REASON,
+  }
+}

@@ -8,14 +8,20 @@
  */
 
 import { MedusaContainer } from '@medusajs/framework/types'
+import type {
+  ProductMetadataFieldScope,
+  ProductMetadataFieldType,
+  ProductMetadataFieldWritePolicy,
+} from '../modules/pim/models/product-metadata-field'
+import type PimModuleService from '../modules/pim/service'
 
 // All default metadata fields
 const DEFAULT_FIELDS: Array<{
   key: string
   label: string
   description?: string
-  type: string
-  scope: string
+  type: ProductMetadataFieldType
+  scope: ProductMetadataFieldScope
   group: string
   visible_in_storefront: boolean
   sort_order: number
@@ -102,14 +108,16 @@ const DEFAULT_FIELDS: Array<{
   },
 ]
 
+const DEFAULT_WRITE_POLICY: ProductMetadataFieldWritePolicy = 'admin'
+
 export default async function bootstrapPim({ container }: { container: MedusaContainer }) {
   const logger = container.resolve('logger')
-  const pim = container.resolve('pim') as any
+  const pim = container.resolve<PimModuleService>('pim')
 
   logger.info('[bootstrap-pim] Starting metadata field bootstrap...')
 
   const existingFields = await pim.listProductMetadataFields({})
-  const existingKeys = new Set(existingFields.map((f: any) => f.key as string))
+  const existingKeys = new Set(existingFields.map((field) => field.key))
 
   let created = 0
   let skipped = 0
@@ -133,7 +141,7 @@ export default async function bootstrapPim({ container }: { container: MedusaCon
       channel_specific: false,
       visible_in_admin: true,
       visible_in_storefront: field.visible_in_storefront,
-      write_policy: 'admin',
+      write_policy: DEFAULT_WRITE_POLICY,
       sort_order: field.sort_order,
     })
 

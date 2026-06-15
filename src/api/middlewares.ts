@@ -13,7 +13,7 @@ import {
 
 export const BATCH_CONTENT_PRODUCT_LIMIT = 50
 
-// ─── Body schemas ──────────────────────────────────────────────────────────
+// Body schemas
 
 const BulletSchema = z.object({
   label: z.string().optional(),
@@ -28,12 +28,18 @@ const SpecSchema = z.object({
   group: z.string().optional(),
 })
 
+const VariantTitleSchema = z.object({
+  variant_id: z.string(),
+  title: z.string(),
+})
+
 export const UpsertContentSchema = z.object({
   locale: z.string(),
   channel: z.string().optional(),
   title: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
   short_description: z.string().nullable().optional(),
+  variant_titles_json: z.array(VariantTitleSchema).nullable().optional(),
   bullets_json: z.array(BulletSchema).nullable().optional(),
   specifications_json: z.array(SpecSchema).nullable().optional(),
   seo_json: z.record(z.string(), z.unknown()).nullable().optional(),
@@ -103,7 +109,7 @@ export const BatchContentSchema = z.object({
 })
 export interface BatchContentSchema extends z.infer<typeof BatchContentSchema> {}
 
-// ─── Query schemas ─────────────────────────────────────────────────────────
+// Query schemas
 
 export const ListContentQuerySchema = createFindParams().merge(
   z.object({
@@ -113,6 +119,7 @@ export const ListContentQuerySchema = createFindParams().merge(
     channel: z.string().optional(),
   }),
 )
+export type ListContentQuery = z.infer<typeof ListContentQuerySchema>
 
 export const ListJobsQuerySchema = createFindParams().merge(
   z.object({
@@ -121,13 +128,14 @@ export const ListJobsQuerySchema = createFindParams().merge(
     product_id: z.string().optional(),
   }),
 )
+export type ListJobsQuery = z.infer<typeof ListJobsQuerySchema>
 
 export const GetContentQuerySchema = z.object({
   locale: z.string().optional(),
   channel: z.string().optional(),
 })
 
-// ─── Middleware registration ───────────────────────────────────────────────
+// Middleware registration
 
 export default defineMiddlewares({
   routes: [
@@ -138,7 +146,16 @@ export default defineMiddlewares({
       middlewares: [
         validateAndTransformQuery(ListContentQuerySchema, {
           isList: true,
-          defaults: ['id', 'product_id', 'locale', 'channel', 'status', 'title', 'updated_at'],
+          defaults: [
+            'id',
+            'product_id',
+            'locale',
+            'channel',
+            'status',
+            'title',
+            'variant_titles_json',
+            'updated_at',
+          ],
         }),
       ],
     },

@@ -2,15 +2,32 @@ import { createStep, StepResponse } from '@medusajs/framework/workflows-sdk'
 import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
+import type { ProductContentStatus } from '../../modules/pim/models/product-content'
+import type {
+  ProductMetadataFieldScope,
+  ProductMetadataFieldType,
+} from '../../modules/pim/models/product-metadata-field'
 
 export interface SyncMetadataInput {
   product_id: string
-  scope: 'product' | 'content'
+  scope: Extract<ProductMetadataFieldScope, 'product' | 'content'>
   locale?: string
   channel?: string
   metadata: Record<string, unknown>
   allow_unknown_keys?: boolean
 }
+
+type MetadataFieldRecord = {
+  key: string
+  type: ProductMetadataFieldType
+}
+
+type ContentMetadataRecord = {
+  id: string
+  custom_metadata_json?: Record<string, unknown> | null
+}
+
+const ACTIVE_CONTENT_STATUSES: ProductContentStatus[] = ['draft', 'ai_generated', 'reviewed']
 
 export const syncProductMetadataStep = createStep(
   'sync-product-metadata',
@@ -18,9 +35,11 @@ export const syncProductMetadataStep = createStep(
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
 
     // Load field definitions for validation
-    const fieldDefs = await pim.listProductMetadataFields({ scope: input.scope as any }, {})
+    const fieldDefs = (await pim.listProductMetadataFields({
+      scope: input.scope,
+    })) as MetadataFieldRecord[]
 
-    const allowedKeys = new Set(fieldDefs.map((f: any) => f.key as string))
+    const allowedKeys = new Set(fieldDefs.map((field) => field.key))
     const unknownKeys = Object.keys(input.metadata).filter((k) => !allowedKeys.has(k))
 
     if (unknownKeys.length > 0 && !input.allow_unknown_keys) {
@@ -31,7 +50,7 @@ export const syncProductMetadataStep = createStep(
     }
 
     // Validate field types for known keys
-    for (const field of fieldDefs as any[]) {
+    for (const field of fieldDefs) {
       const value = input.metadata[field.key]
       if (value === undefined) continue
       validateFieldValue(field.key, field.type, value)
@@ -44,7 +63,7 @@ export const syncProductMetadataStep = createStep(
           product_id: input.product_id,
           locale: input.locale ?? 'en',
           channel: input.channel ?? 'storefront',
-          status: ['draft', 'ai_generated', 'reviewed'] as any,
+          status: ACTIVE_CONTENT_STATUSES,
         },
         { take: 1 },
       )
@@ -56,7 +75,7 @@ export const syncProductMetadataStep = createStep(
         )
       }
 
-      const existing = records[0] as any
+      const existing = records[0] as ContentMetadataRecord
       const merged = {
         ...(existing.custom_metadata_json ?? {}),
         ...input.metadata,
