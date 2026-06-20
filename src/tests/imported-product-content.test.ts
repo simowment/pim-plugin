@@ -10,7 +10,7 @@ describe('imported product content contract', () => {
         external_product_id: 'ext_123',
         supplier_id: 'aliexpress',
         supplier_product_id: '100500',
-        locale: 'fr',
+        locale: 'fr-FR',
         channel: 'storefront',
         title: 'Imported title',
         description: 'Imported description',
@@ -25,7 +25,7 @@ describe('imported product content contract', () => {
       }),
     ).toEqual({
       product_id: 'prod_123',
-      locale: 'fr',
+      locale: 'fr-FR',
       channel: 'storefront',
       title: 'Imported title',
       description: 'Imported description',

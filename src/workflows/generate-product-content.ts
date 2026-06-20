@@ -17,6 +17,7 @@ import {
 } from './steps/create-or-update-product-content'
 import { hasUsableSpecifications } from '../lib/specifications'
 import { getRecordId } from '../lib/records'
+import { resolveDefaultPimChannel } from '../lib/channels'
 
 export interface GenerateProductContentInput {
   product_id: string
@@ -106,7 +107,7 @@ export const generateProductContentWorkflow: ReturnWorkflow<
       return {
         product_id: input.product_id,
         locale: input.target_locale,
-        channel: input.channel ?? 'storefront',
+        channel: input.channel ?? resolveDefaultPimChannel(),
         title: generatedContent.title ?? null,
         description: generatedContent.description ?? null,
         short_description: generatedContent.short_description ?? null,

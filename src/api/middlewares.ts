@@ -10,8 +10,10 @@ import {
   METADATA_FIELD_TYPES,
   METADATA_FIELD_WRITE_POLICIES,
 } from '../lib/metadata-fields'
+import { parseCanonicalPimLocale } from '../lib/locales'
 
 export const BATCH_CONTENT_PRODUCT_LIMIT = 50
+const CANONICAL_LOCALE_ERROR = 'Locale must be a canonical BCP 47 code with a region, for example fr-FR.'
 
 // Body schemas
 
@@ -33,8 +35,21 @@ const VariantTitleSchema = z.object({
   title: z.string(),
 })
 
+const CanonicalLocaleSchema = z.string().transform((value, context) => {
+  const locale = parseCanonicalPimLocale(value)
+  if (!locale) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: CANONICAL_LOCALE_ERROR,
+    })
+    return z.NEVER
+  }
+
+  return locale
+})
+
 export const UpsertContentSchema = z.object({
-  locale: z.string(),
+  locale: CanonicalLocaleSchema,
   channel: z.string().optional(),
   title: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
@@ -55,8 +70,8 @@ export const PublishContentSchema = z.object({
 export interface PublishContentSchema extends z.infer<typeof PublishContentSchema> {}
 
 export const GenerateContentSchema = z.object({
-  source_locale: z.string().optional(),
-  target_locale: z.string(),
+  source_locale: CanonicalLocaleSchema.optional(),
+  target_locale: CanonicalLocaleSchema,
   channel: z.string().optional(),
   mode: z.enum(['translate', 'rewrite', 'extract_specs', 'seo', 'full']),
   tone: z.enum(['neutral', 'luxury', 'technical', 'seo']).optional(),
@@ -72,9 +87,15 @@ export const UpdatePimAiSettingsSchema = z.object({
 })
 export interface UpdatePimAiSettingsSchema extends z.infer<typeof UpdatePimAiSettingsSchema> {}
 
+export const ListPimAiModelsQuerySchema = z.object({
+  provider: z.string().min(1).optional(),
+  base_url: z.string().url().optional(),
+})
+export type ListPimAiModelsQuery = z.infer<typeof ListPimAiModelsQuerySchema>
+
 export const UpdateMetadataSchema = z.object({
   scope: z.enum(['product', 'content']),
-  locale: z.string().optional(),
+  locale: CanonicalLocaleSchema.optional(),
   channel: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()),
 })
@@ -104,7 +125,7 @@ export interface CreateMetadataFieldSchema extends z.infer<typeof CreateMetadata
 
 export const BatchContentSchema = z.object({
   product_ids: z.array(z.string()).min(1).max(BATCH_CONTENT_PRODUCT_LIMIT),
-  locale: z.string(),
+  locale: CanonicalLocaleSchema.optional(),
   channel: z.string().optional(),
 })
 export interface BatchContentSchema extends z.infer<typeof BatchContentSchema> {}
@@ -114,7 +135,7 @@ export interface BatchContentSchema extends z.infer<typeof BatchContentSchema> {
 export const ListContentQuerySchema = createFindParams().merge(
   z.object({
     product_id: z.string().optional(),
-    locale: z.string().optional(),
+    locale: CanonicalLocaleSchema.optional(),
     status: z.string().optional(),
     channel: z.string().optional(),
   }),
@@ -131,9 +152,10 @@ export const ListJobsQuerySchema = createFindParams().merge(
 export type ListJobsQuery = z.infer<typeof ListJobsQuerySchema>
 
 export const GetContentQuerySchema = z.object({
-  locale: z.string().optional(),
+  locale: CanonicalLocaleSchema.optional(),
   channel: z.string().optional(),
 })
+export interface GetContentQuerySchema extends z.infer<typeof GetContentQuerySchema> {}
 
 // Middleware registration
 
@@ -200,6 +222,11 @@ export default defineMiddlewares({
       matcher: '/admin/pim/ai-settings',
       method: 'POST',
       middlewares: [validateAndTransformBody(UpdatePimAiSettingsSchema)],
+    },
+    {
+      matcher: '/admin/pim/ai-settings/models',
+      method: 'GET',
+      middlewares: [validateAndTransformQuery(ListPimAiModelsQuerySchema, {})],
     },
     {
       matcher: '/admin/pim/products/:id/metadata',

@@ -1,6 +1,11 @@
 import { z } from '@medusajs/framework/zod'
 import { MedusaError } from '@medusajs/framework/utils'
 import { createCipheriv, createDecipheriv, createHash, createSecretKey, randomBytes } from 'crypto'
+import {
+  resolveAiGatewayConfig,
+  resolvePortkeyGatewayHeaders,
+} from './ai-gateway-config'
+import { getErrorMessage } from './error-messages'
 import { PIM_MODULE } from '../modules/pim'
 
 // ── Generic provider contract (matches any OpenAI-compatible gateway) ──────
@@ -21,12 +26,37 @@ const DEFAULT_AI_BASE_URL = 'https://openrouter.ai/api/v1'
 const DEFAULT_AI_MODEL = 'openai/gpt-4o-mini'
 const OPENAI_BASE_URL = 'https://api.openai.com/v1'
 const OPENAI_MODEL = 'gpt-4o-mini'
-const KILO_BASE_URL = 'https://api.kilo.ai/api/gateway'
-const KILO_MODEL = 'kilo/kilo-auto/free'
+export const KILO_BASE_URL = 'https://api.kilo.ai/api/gateway'
+export const KILO_MODEL = 'kilo-auto/balanced'
 const DEFAULT_AI_TEMPERATURE = 0.4
-const DEFAULT_AI_MAX_TOKENS = 1200
+const DEFAULT_AI_MAX_TOKENS = 2400
 const DEFAULT_AI_REQUEST_TIMEOUT_MS = 30000
-const DEFAULT_AI_GATEWAY_MODULE_NAMES = ['pimAi', 'aiGateway']
+const AI_API_KEY_ENV_KEYS = [
+  'PIM_AI_API_KEY',
+  'AI_GATEWAY_API_KEY',
+  'OPENROUTER_API_KEY',
+  'KILO_API_KEY',
+  'KILOCODE_API_KEY',
+  'OPENAI_API_KEY',
+] as const
+const OPENROUTER_API_KEY_ENV_KEYS = [
+  'OPENROUTER_API_KEY',
+  'PIM_AI_API_KEY',
+  'AI_GATEWAY_API_KEY',
+] as const
+const KILO_API_KEY_ENV_KEYS = [
+  'KILO_API_KEY',
+  'KILOCODE_API_KEY',
+  'PIM_AI_API_KEY',
+  'AI_GATEWAY_API_KEY',
+] as const
+const OPENAI_API_KEY_ENV_KEYS = [
+  'OPENAI_API_KEY',
+  'PIM_AI_API_KEY',
+  'AI_GATEWAY_API_KEY',
+] as const
+const AI_BASE_URL_ENV_KEYS = ['AI_GATEWAY_URL', 'PIM_AI_BASE_URL', 'OPENAI_BASE_URL'] as const
+const AI_MODEL_ENV_KEYS = ['PIM_AI_MODEL', 'AI_MODEL', 'OPENAI_MODEL'] as const
 const PIM_AI_SETTING_KEY = 'default'
 const ENCRYPTED_SECRET_PREFIX = 'enc:v1'
 const ENCRYPTED_SECRET_SEPARATOR = ':'
@@ -61,6 +91,12 @@ export interface PimAiSettingsResponse {
   api_key_preview: string
   can_update: boolean
   source: 'gateway' | 'pim_settings' | 'environment'
+}
+
+export interface PimAiProviderConfigSnapshot extends Partial<ProviderConfig> {
+  provider: string
+  base_url: string
+  model: string
 }
 
 // ── Generic service interface (any module can implement this) ──────────────
@@ -123,8 +159,48 @@ function readOptionalEnv(name: string): string | undefined {
   return value ? value : undefined
 }
 
-function resolveEnvApiKey(): string | undefined {
-  return readOptionalEnv('PIM_AI_API_KEY')
+function readFirstOptionalEnv(names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const value = readOptionalEnv(name)
+    if (value) return value
+  }
+
+  return undefined
+}
+
+function normalizeProviderName(provider: unknown): string {
+  return typeof provider === 'string' ? provider.trim().toLowerCase() : ''
+}
+
+function apiKeyEnvKeysForProvider(provider: unknown): readonly string[] {
+  const normalized = normalizeProviderName(provider)
+  if (normalized === 'openrouter') return OPENROUTER_API_KEY_ENV_KEYS
+  if (normalized === 'kilo' || normalized === 'kilocode') return KILO_API_KEY_ENV_KEYS
+  if (normalized === 'openai') return OPENAI_API_KEY_ENV_KEYS
+
+  return AI_API_KEY_ENV_KEYS
+}
+
+function resolveEnvApiKeyForProvider(provider: unknown): string | undefined {
+  return readFirstOptionalEnv(apiKeyEnvKeysForProvider(provider))
+}
+
+function resolveEnvAiConfig(): AiConfigInput {
+  const gatewayConfig = resolveAiGatewayConfig({
+    provider: readOptionalEnv('PIM_AI_PROVIDER'),
+    apiKeyEnvKeys: AI_API_KEY_ENV_KEYS,
+    baseUrlEnvKeys: AI_BASE_URL_ENV_KEYS,
+    modelEnvKeys: AI_MODEL_ENV_KEYS,
+    headers: parseHeaders(process.env.PIM_AI_HEADERS_JSON),
+  })
+
+  return {
+    provider: gatewayConfig.provider,
+    api_key: resolveEnvApiKeyForProvider(gatewayConfig.provider) ?? gatewayConfig.api_key,
+    base_url: gatewayConfig.base_url,
+    model: gatewayConfig.model,
+    headers: gatewayConfig.headers,
+  }
 }
 
 function resolveEncryptionKey() {
@@ -192,18 +268,25 @@ function decryptApiKey(storedValue?: string | null): string | undefined {
     },
   )
   decipher.setAuthTag(Uint8Array.from(Buffer.from(tagValue, 'base64')))
-  return decipher.update(encryptedValue, 'base64', 'utf8') + decipher.final('utf8')
+  try {
+    return decipher.update(encryptedValue, 'base64', 'utf8') + decipher.final('utf8')
+  } catch (error) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Persisted PIM AI API key could not be decrypted: ${getErrorMessage(error)}. Re-save the PIM AI settings with a new API key.`,
+    )
+  }
 }
 
 function defaultBaseUrlForProvider(provider: unknown): string {
-  const normalized = typeof provider === 'string' ? provider.trim().toLowerCase() : ''
+  const normalized = normalizeProviderName(provider)
   if (normalized === 'openai') return OPENAI_BASE_URL
   if (normalized === 'kilo' || normalized === 'kilocode') return KILO_BASE_URL
   return DEFAULT_AI_BASE_URL
 }
 
 function defaultModelForProvider(provider: unknown): string {
-  const normalized = typeof provider === 'string' ? provider.trim().toLowerCase() : ''
+  const normalized = normalizeProviderName(provider)
   if (normalized === 'openai') return OPENAI_MODEL
   if (normalized === 'kilo' || normalized === 'kilocode') return KILO_MODEL
   return DEFAULT_AI_MODEL
@@ -222,20 +305,24 @@ function normalizeAiConfig(input: AiConfigInput): PimAiConfig {
     typeof input.model === 'string' && input.model.trim()
       ? input.model.trim()
       : defaultModelForProvider(provider)
+  const headers = resolvePortkeyGatewayHeaders({
+    baseUrl,
+    headers: AiHeadersSchema.parse(input.headers ?? {}),
+    provider,
+  })
 
   return AiConfigSchema.parse({
     ...input,
     provider,
     base_url: baseUrl,
     model,
+    headers,
   })
 }
 
 function resolveAiGatewayModuleNames(): string[] {
   const configuredName = readOptionalEnv('PIM_AI_GATEWAY_MODULE')
-  return configuredName
-    ? [configuredName, ...DEFAULT_AI_GATEWAY_MODULE_NAMES.filter((name) => name !== configuredName)]
-    : DEFAULT_AI_GATEWAY_MODULE_NAMES
+  return configuredName ? [configuredName] : []
 }
 
 function findConfiguredOptions(configModule: ConfigModule): Record<string, unknown> {
@@ -278,16 +365,17 @@ export function resolvePimAiConfig(configModule: ConfigModule): PimAiConfig {
     typeof configuredOptions.ai === 'object' && configuredOptions.ai !== null
       ? configuredOptions.ai
       : {}
+  const envAi = resolveEnvAiConfig()
 
   return normalizeAiConfig({
-    provider: readOptionalEnv('PIM_AI_PROVIDER'),
-    api_key: resolveEnvApiKey(),
-    base_url: readOptionalEnv('PIM_AI_BASE_URL'),
-    model: readOptionalEnv('PIM_AI_MODEL'),
+    provider: envAi.provider,
+    api_key: envAi.api_key,
+    base_url: envAi.base_url,
+    model: envAi.model,
     temperature: parseNumber(process.env.PIM_AI_TEMPERATURE),
     max_tokens: parseNumber(process.env.PIM_AI_MAX_TOKENS),
     request_timeout_ms: parseNumber(process.env.PIM_AI_REQUEST_TIMEOUT_MS),
-    headers: parseHeaders(process.env.PIM_AI_HEADERS_JSON),
+    headers: envAi.headers,
     ...configuredAi,
   })
 }
@@ -301,6 +389,7 @@ export async function resolvePimAiConfigFromContainer(container: {
 }): Promise<PimAiConfig> {
   const gateway = resolveOptionalAiGateway(container)
   if (!gateway) {
+    const envAi = resolveEnvAiConfig()
     const persistedSettings = await resolvePersistedPimAiSettings(container)
     if (!persistedSettings) {
       return resolvePimAiConfig({})
@@ -308,13 +397,14 @@ export async function resolvePimAiConfigFromContainer(container: {
 
     return normalizeAiConfig({
       provider: persistedSettings.provider,
-      api_key: decryptApiKey(persistedSettings.encrypted_api_key) ?? resolveEnvApiKey(),
+      api_key: decryptApiKey(persistedSettings.encrypted_api_key) ?? envAi.api_key,
       base_url: persistedSettings.base_url,
       model: persistedSettings.model,
       temperature: parseNumber(process.env.PIM_AI_TEMPERATURE),
       max_tokens: parseNumber(process.env.PIM_AI_MAX_TOKENS),
       request_timeout_ms: parseNumber(process.env.PIM_AI_REQUEST_TIMEOUT_MS),
       headers: {
+        ...AiHeadersSchema.parse(envAi.headers ?? {}),
         ...(persistedSettings.headers_json ?? {}),
         ...parseHeaders(process.env.PIM_AI_HEADERS_JSON),
       },
@@ -332,8 +422,8 @@ export async function resolvePimAiConfigFromContainer(container: {
   return normalizeAiConfig({
     provider: providerConfig.provider,
     api_key: providerConfig.api_key,
-    base_url: providerConfig.base_url,
-    model: providerConfig.model,
+    base_url: readFirstOptionalEnv(AI_BASE_URL_ENV_KEYS) ?? providerConfig.base_url,
+    model: readFirstOptionalEnv(AI_MODEL_ENV_KEYS) ?? providerConfig.model,
     temperature: parseNumber(process.env.PIM_AI_TEMPERATURE),
     max_tokens: parseNumber(process.env.PIM_AI_MAX_TOKENS),
     request_timeout_ms: parseNumber(process.env.PIM_AI_REQUEST_TIMEOUT_MS),
@@ -347,19 +437,63 @@ export async function updatePimAiProviderConfig(
 ): Promise<PimAiSettingsResponse> {
   const gateway = resolveOptionalAiGateway(container)
   if (gateway) {
-    const normalized = normalizeAiConfig(config)
-    await gateway.setProviderConfig({
+    const current = await gateway.getProviderConfig()
+    const provider = config.provider ?? current.provider
+    const normalized = normalizeAiConfig({
+      provider,
+      api_key: config.api_key ?? current.api_key ?? resolveEnvApiKeyForProvider(provider),
+      base_url: config.base_url ?? current.base_url,
+      model: config.model ?? current.model,
+      headers: config.headers ?? current.headers ?? {},
+    })
+    const nextConfig: Partial<ProviderConfig> = {
       provider: normalized.provider,
-      api_key: normalized.api_key,
       base_url: normalized.base_url,
       model: normalized.model,
       headers: normalized.headers,
-    })
+    }
+
+    if (typeof config.api_key === 'string') {
+      nextConfig.api_key = normalized.api_key
+    }
+
+    await gateway.setProviderConfig(nextConfig)
     return getPimAiSettings(container)
   }
 
   await upsertPersistedPimAiSettings(container, config)
   return getPimAiSettings(container)
+}
+
+export async function getPimAiProviderConfigSnapshot(container: {
+  resolve: <T = unknown>(key: string, options?: Record<string, unknown>) => T
+}, options: { includeApiKey?: boolean } = {}): Promise<PimAiProviderConfigSnapshot | null> {
+  const includeApiKey = options.includeApiKey ?? true
+  const gateway = resolveOptionalAiGateway(container)
+  if (gateway) {
+    const current = await gateway.getProviderConfig()
+
+    return {
+      provider: current.provider,
+      api_key: includeApiKey ? current.api_key : undefined,
+      base_url: current.base_url,
+      model: current.model,
+      headers: current.headers,
+    }
+  }
+
+  const persistedSettings = await resolvePersistedPimAiSettings(container)
+  if (!persistedSettings) {
+    return null
+  }
+
+  return {
+    provider: persistedSettings.provider,
+    api_key: includeApiKey ? decryptApiKey(persistedSettings.encrypted_api_key) : undefined,
+    base_url: persistedSettings.base_url,
+    model: persistedSettings.model,
+    headers: persistedSettings.headers_json ?? {},
+  }
 }
 
 export async function getPimAiSettings(container: {
@@ -409,18 +543,21 @@ async function upsertPersistedPimAiSettings(
   }
 
   const existing = await resolvePersistedPimAiSettings(container)
+  const replacingApiKey = typeof config.api_key === 'string'
   const fallbackConfig = existing
     ? normalizeAiConfig({
         provider: existing.provider,
-        api_key: decryptApiKey(existing.encrypted_api_key) ?? resolveEnvApiKey(),
+        api_key: replacingApiKey ? config.api_key : decryptApiKey(existing.encrypted_api_key),
         base_url: existing.base_url,
         model: existing.model,
         headers: existing.headers_json ?? {},
       })
     : resolvePimAiConfig({})
+  const selectedProvider = config.provider ?? fallbackConfig.provider
+  const submittedApiKey = replacingApiKey ? config.api_key : undefined
   const normalized = normalizeAiConfig({
-    provider: config.provider ?? fallbackConfig.provider,
-    api_key: config.api_key ?? decryptApiKey(existing?.encrypted_api_key) ?? undefined,
+    provider: selectedProvider,
+    api_key: submittedApiKey ?? decryptApiKey(existing?.encrypted_api_key),
     base_url: config.base_url ?? fallbackConfig.base_url,
     model: config.model ?? fallbackConfig.model,
     headers: config.headers ?? existing?.headers_json ?? {},
@@ -428,8 +565,8 @@ async function upsertPersistedPimAiSettings(
   const payload = {
     key: PIM_AI_SETTING_KEY,
     provider: normalized.provider,
-    encrypted_api_key: normalized.api_key
-      ? encryptApiKey(normalized.api_key)
+    encrypted_api_key: submittedApiKey
+      ? encryptApiKey(submittedApiKey)
       : (existing?.encrypted_api_key ?? null),
     base_url: normalized.base_url,
     model: normalized.model,

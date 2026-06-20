@@ -20,7 +20,11 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const filters: Record<string, unknown> = {}
   if (product_id) filters.product_id = product_id
   if (locale) filters.locale = locale
-  if (status) filters.status = status
+  if (status) {
+    filters.status = status
+  } else {
+    filters.status = ['draft', 'ai_generated', 'reviewed', 'published']
+  }
   if (channel) filters.channel = channel
 
   const [contents, count] = await pim.listAndCountProductContents(filters, {

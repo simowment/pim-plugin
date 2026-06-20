@@ -3,6 +3,8 @@ import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 import { resolvePimAiConfigFromContainer } from '../../lib/ai-config'
+import { getErrorMessage, truncateErrorMessage } from '../../lib/error-messages'
+import { getKiloModelOption } from '../../lib/kilo-models'
 import { getRecordId } from '../../lib/records'
 import type {
   ProductContentJobStatus,
@@ -12,6 +14,16 @@ import type {
 const GENERATION_MODES = ['translate', 'rewrite', 'extract_specs', 'seo', 'full'] as const
 const TONES = ['neutral', 'luxury', 'technical', 'seo'] as const
 const JSON_CONTENT_TYPE = 'application/json'
+const ROLLBACK_FAILURE_MESSAGE = 'Generation workflow rolled back before completion.'
+const AI_PROVIDER_ERROR_PREVIEW_LENGTH = 1000
+const GENERATED_DESCRIPTION_MAX_CHARACTERS = 700
+const GENERATED_SHORT_DESCRIPTION_MAX_CHARACTERS = 180
+const GENERATED_VARIANT_TITLE_LIMIT = 24
+const GENERATED_BULLET_LIMIT = 5
+const GENERATED_SPECIFICATION_LIMIT = 20
+const GENERATED_SEO_KEYWORD_LIMIT = 8
+const NON_JSON_MESSAGE_PREVIEW_LENGTH = 500
+const LENGTH_FINISH_REASON = 'length'
 
 export interface GenerateContentInput {
   product_id: string
@@ -40,6 +52,15 @@ export interface GenerateContentOutput {
   job_id: string
   content_id: string | null
   generated: Record<string, unknown>
+}
+
+type AiChatCompletionResponse = {
+  choices?: Array<{
+    finish_reason?: unknown
+    message?: {
+      content?: unknown
+    }
+  }>
 }
 
 export const createJobStep = createStep(
@@ -72,11 +93,13 @@ export const createJobStep = createStep(
   async (jobId, { container }) => {
     if (!jobId) return
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
+    const job = await pim.retrieveProductContentJob(jobId)
     await pim.updateProductContentJobs({
       id: jobId,
       status: 'failed',
-      error_message: 'Generation workflow rolled back before completion.',
-      completed_at: new Date(),
+      error_message: job.error_message ?? ROLLBACK_FAILURE_MESSAGE,
+      result_json: job.result_json ?? null,
+      completed_at: job.completed_at ?? new Date(),
     })
   },
 )
@@ -104,7 +127,7 @@ export const callAiProviderStep = createStep(
         status: 'failed',
         generated: null,
         error_message:
-          'AI provider API key is not configured. Set PIM_AI_API_KEY in your environment.',
+          'AI provider API key is not configured. Configure the shared AI gateway key or a PIM AI override.',
       })
     }
 
@@ -114,6 +137,14 @@ export const callAiProviderStep = createStep(
 
     const systemPrompt = buildSystemPrompt(input.mode, input.tone, input.locale)
     const userPrompt = buildUserPrompt(input.mode, input.existing_content)
+    const modelSupportError = await validateModelSupportsJsonOutput(aiConfig)
+    if (modelSupportError) {
+      return new StepResponse<AiProviderStepResult>({
+        status: 'failed',
+        generated: null,
+        error_message: modelSupportError,
+      })
+    }
 
     const abortController = new AbortController()
     const timeout = setTimeout(() => abortController.abort(), aiConfig.request_timeout_ms)
@@ -157,12 +188,12 @@ export const callAiProviderStep = createStep(
       return new StepResponse<AiProviderStepResult>({
         status: 'failed',
         generated: null,
-        error_message: `AI provider returned ${response.status}: ${errorText}`,
+        error_message: formatAiProviderError(response.status, errorText, aiConfig.model),
       })
     }
 
     const responseBody = await response.text()
-    let data: { choices?: Array<{ message?: { content?: string } }> }
+    let data: AiChatCompletionResponse
     try {
       data = JSON.parse(responseBody) as typeof data
     } catch {
@@ -174,14 +205,22 @@ export const callAiProviderStep = createStep(
       })
     }
 
-    const raw = data.choices?.[0]?.message?.content
+    const raw = normalizeMessageContent(data.choices?.[0]?.message?.content)
+    const finishReason = getFinishReason(data)
+
+    if (finishReason === LENGTH_FINISH_REASON) {
+      logger.error(
+        `[PIM] AI response hit token limit: choices=${data.choices?.length ?? 0} body_preview=${responseBody.slice(0, 300)}`,
+      )
+      return new StepResponse<AiProviderStepResult>({
+        status: 'failed',
+        generated: null,
+        error_message: `AI provider stopped because max_tokens was reached for model "${aiConfig.model}". Increase PIM_AI_MAX_TOKENS, reduce product input size, or choose a model with a larger output limit.`,
+      })
+    }
 
     if (!raw) {
       const hasChoices = data.choices && data.choices.length > 0
-      const finishReason =
-        data.choices?.[0] && 'finish_reason' in data.choices[0]
-          ? (data.choices[0] as Record<string, unknown>).finish_reason
-          : 'unknown'
       logger.error(
         `[PIM] AI returned empty content: choices=${data.choices?.length ?? 0} finish_reason=${finishReason} body_preview=${responseBody.slice(0, 300)}`,
       )
@@ -192,20 +231,23 @@ export const callAiProviderStep = createStep(
       })
     }
 
-    try {
-      const generated = JSON.parse(raw) as Record<string, unknown>
+    const generated = parseGeneratedContent(raw)
+    if (generated) {
       return new StepResponse<AiProviderStepResult>({
         status: 'completed',
         generated,
         error_message: null,
       })
-    } catch {
-      return new StepResponse<AiProviderStepResult>({
-        status: 'failed',
-        generated: null,
-        error_message: 'AI provider returned non-JSON message content',
-      })
     }
+
+    logger.error(
+      `[PIM] AI returned non-JSON message content model=${aiConfig.model} raw_preview=${raw.slice(0, NON_JSON_MESSAGE_PREVIEW_LENGTH)}`,
+    )
+    return new StepResponse<AiProviderStepResult>({
+      status: 'failed',
+      generated: null,
+      error_message: `AI provider returned non-JSON message content for model "${aiConfig.model}": ${truncateErrorMessage(raw, NON_JSON_MESSAGE_PREVIEW_LENGTH)}`,
+    })
   },
 )
 
@@ -267,7 +309,11 @@ function buildSystemPrompt(mode: string, tone: string, locale: string): string {
 Target locale: ${locale}.
 Tone: ${toneDesc}
 Respond with a single JSON object containing only the fields you generated.
-Fields may include: title, description, short_description, variant_titles_json (array of {variant_id,title}), bullets_json (array), specifications_json (array of {key,label,value,unit,group}), seo_json ({title,description,keywords}).`
+Fields may include: title, description, short_description, variant_titles_json (array of {variant_id,title}), bullets_json (array), specifications_json (array of {key,label,value,unit,group}), seo_json ({title,description,keywords}).
+Use only variant_id values present in native_product_json.variants.
+Keep the JSON compact: description under ${GENERATED_DESCRIPTION_MAX_CHARACTERS} characters, short_description under ${GENERATED_SHORT_DESCRIPTION_MAX_CHARACTERS} characters, variant_titles_json up to ${GENERATED_VARIANT_TITLE_LIMIT} items, bullets_json up to ${GENERATED_BULLET_LIMIT} items, specifications_json up to ${GENERATED_SPECIFICATION_LIMIT} customer-relevant items, and seo_json.keywords up to ${GENERATED_SEO_KEYWORD_LIMIT} items.
+If the product has many variants or the answer may exceed the token limit, omit variant_titles_json instead of truncating JSON.
+Return valid JSON only, with no markdown or commentary.`
 }
 
 function buildUserPrompt(mode: string, existing: Record<string, unknown> | null): string {
@@ -276,6 +322,166 @@ function buildUserPrompt(mode: string, existing: Record<string, unknown> | null)
   return `Existing content:\n${JSON.stringify(existing, null, 2)}`
 }
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+function normalizeMessageContent(content: unknown): string | null {
+  if (typeof content === 'string') {
+    const trimmed = content.trim()
+    return trimmed ? trimmed : null
+  }
+
+  if (!Array.isArray(content)) {
+    return null
+  }
+
+  const parts = content
+    .map((item) => {
+      if (typeof item === 'string') {
+        return item
+      }
+
+      if (!isRecord(item)) {
+        return ''
+      }
+
+      if (typeof item.text === 'string') {
+        return item.text
+      }
+
+      if (typeof item.content === 'string') {
+        return item.content
+      }
+
+      return ''
+    })
+    .map((part) => part.trim())
+    .filter((part) => Boolean(part))
+
+  return parts.length ? parts.join('\n') : null
+}
+
+function isKiloProvider(provider: string): boolean {
+  const normalized = provider.trim().toLowerCase()
+  return normalized === 'kilo' || normalized === 'kilocode'
+}
+
+function getFinishReason(data: AiChatCompletionResponse): unknown {
+  return data.choices?.[0] && 'finish_reason' in data.choices[0]
+    ? (data.choices[0] as Record<string, unknown>).finish_reason
+    : 'unknown'
+}
+
+async function validateModelSupportsJsonOutput(aiConfig: {
+  provider: string
+  base_url: string
+  model: string
+}): Promise<string | null> {
+  if (!isKiloProvider(aiConfig.provider)) {
+    return null
+  }
+
+  let model: Awaited<ReturnType<typeof getKiloModelOption>>
+  try {
+    model = await getKiloModelOption({
+      baseUrl: aiConfig.base_url,
+      model: aiConfig.model,
+    })
+  } catch (error) {
+    return `Unable to verify Kilo model JSON support: ${getErrorMessage(error)}`
+  }
+
+  if (!model) {
+    return `Selected Kilo model "${aiConfig.model}" is not available from the Kilo models endpoint. Pick an available model in AI Setup.`
+  }
+
+  if (!model.supports_response_format) {
+    return `Selected Kilo model "${aiConfig.model}" does not advertise JSON output support. Pick a Kilo model marked JSON in AI Setup before generating PIM content.`
+  }
+
+  return null
+}
+
+function parseGeneratedContent(raw: string): Record<string, unknown> | null {
+  const direct = parseJsonRecord(raw.trim())
+  if (direct) {
+    return direct
+  }
+
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fenced?.[1]) {
+    const parsed = parseJsonRecord(fenced[1].trim())
+    if (parsed) {
+      return parsed
+    }
+  }
+
+  const embedded = findFirstJsonObject(raw)
+  return embedded ? parseJsonRecord(embedded) : null
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return isRecord(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function findFirstJsonObject(value: string): string | null {
+  let start = -1
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (character === '\\') {
+        escaped = true
+      } else if (character === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (character === '"') {
+      inString = true
+      continue
+    }
+
+    if (character === '{') {
+      if (depth === 0) {
+        start = index
+      }
+      depth += 1
+      continue
+    }
+
+    if (character === '}' && depth > 0) {
+      depth -= 1
+      if (depth === 0 && start >= 0) {
+        return value.slice(start, index + 1)
+      }
+    }
+  }
+
+  return null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function formatAiProviderError(status: number, body: string, model: string): string {
+  try {
+    const parsed = JSON.parse(body) as unknown
+    return `AI provider returned ${status} for model "${model}": ${getErrorMessage(parsed)}`
+  } catch {
+    return `AI provider returned ${status} for model "${model}": ${truncateErrorMessage(
+      body,
+      AI_PROVIDER_ERROR_PREVIEW_LENGTH,
+    )}`
+  }
 }

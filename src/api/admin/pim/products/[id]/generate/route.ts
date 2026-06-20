@@ -9,6 +9,7 @@ import {
   buildPimGenerationSource,
   resolveBestPimContentRecord,
 } from '../../../../../../lib/specifications'
+import { resolveDefaultPimChannel } from '../../../../../../lib/channels'
 
 // POST /admin/pim/products/:id/generate
 export async function POST(
@@ -17,20 +18,32 @@ export async function POST(
 ) {
   const { id: product_id } = req.params
   const actor_id = req.auth_context.actor_id
+  const sourceLocale = req.validatedBody.source_locale ?? req.validatedBody.target_locale
+  const defaultChannel = resolveDefaultPimChannel()
 
   // Verify product exists
   const query = req.scope.resolve('query')
-  const { data: products } = await query.graph({
-    entity: 'product',
-    filters: { id: product_id },
-    fields: ['id', 'title', 'description', 'metadata'],
-  })
+  const { data: products } = await query.graph(
+    {
+      entity: 'product',
+      filters: { id: product_id },
+      fields: [
+        'id',
+        'title',
+        'description',
+        'metadata',
+        'variants.id',
+        'variants.title',
+        'variants.sku',
+      ],
+    },
+    { locale: sourceLocale },
+  )
   if (!products.length) {
     throw new MedusaError(MedusaError.Types.NOT_FOUND, `Product ${product_id} not found`)
   }
 
-  // Fetch existing content for the source language to enrich rather than overwrite.
-  // Locale matching is language-normalized so "fr", "FR_fr", and "fr-FR" share specs.
+  // Fetch existing content for the exact source locale to enrich rather than overwrite.
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
   const activeStatuses = [...PIM_ACTIVE_STATUSES]
   const [existingRecords] = await pim.listAndCountProductContents(
@@ -44,9 +57,9 @@ export async function POST(
   const sourceProduct = products[0] as Record<string, unknown>
   const storedContent =
     resolveBestPimContentRecord(existingRecords as unknown as Array<Record<string, unknown>>, {
-      locale: req.validatedBody.source_locale ?? req.validatedBody.target_locale,
-      channel: req.validatedBody.channel ?? 'storefront',
-      defaultChannel: 'storefront',
+      locale: sourceLocale,
+      channel: req.validatedBody.channel ?? defaultChannel,
+      defaultChannel,
       statuses: PIM_ACTIVE_STATUSES,
       preferSpecifications: true,
     }) ?? undefined

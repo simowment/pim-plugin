@@ -49,7 +49,7 @@ describe('Content fallback resolution', () => {
   const base: ContentRecord = {
     id: 'cnt_1',
     product_id: 'prod_1',
-    locale: 'en',
+    locale: 'en-US',
     channel: 'storefront',
     status: 'published',
     title: 'English storefront title',
@@ -57,35 +57,35 @@ describe('Content fallback resolution', () => {
 
   it('resolves exact locale + channel match first', () => {
     const records = [
-      { ...base, id: 'cnt_1', locale: 'fr', channel: 'storefront', title: 'French storefront' },
-      { ...base, id: 'cnt_2', locale: 'en', channel: 'storefront', title: 'English storefront' },
+      { ...base, id: 'cnt_1', locale: 'fr-FR', channel: 'storefront', title: 'French storefront' },
+      { ...base, id: 'cnt_2', locale: 'en-US', channel: 'storefront', title: 'English storefront' },
     ]
-    const result = resolveContent(records, 'prod_1', 'fr', 'storefront')
+    const result = resolveContent(records, 'prod_1', 'fr-FR', 'storefront')
     expect(result?.title).toBe('French storefront')
   })
 
   it('falls back to requested locale + default channel', () => {
     const records = [
-      { ...base, id: 'cnt_1', locale: 'fr', channel: 'default', title: 'French default' },
-      { ...base, id: 'cnt_2', locale: 'en', channel: 'storefront', title: 'English storefront' },
+      { ...base, id: 'cnt_1', locale: 'fr-FR', channel: 'default', title: 'French default' },
+      { ...base, id: 'cnt_2', locale: 'en-US', channel: 'storefront', title: 'English storefront' },
     ]
-    const result = resolveContent(records, 'prod_1', 'fr', 'storefront', 'en', 'default')
+    const result = resolveContent(records, 'prod_1', 'fr-FR', 'storefront', 'en-US', 'default')
     expect(result?.title).toBe('French default')
   })
 
   it('does not fall back to default locale for a different requested locale', () => {
     const records = [
-      { ...base, id: 'cnt_1', locale: 'en', channel: 'storefront', title: 'English storefront' },
+      { ...base, id: 'cnt_1', locale: 'en-US', channel: 'storefront', title: 'English storefront' },
     ]
-    const result = resolveContent(records, 'prod_1', 'fr', 'storefront')
+    const result = resolveContent(records, 'prod_1', 'fr-FR', 'storefront')
     expect(result).toBeNull()
   })
 
   it('does not fall back to default locale + default channel as last resort', () => {
     const records = [
-      { ...base, id: 'cnt_1', locale: 'en', channel: 'default', title: 'English default' },
+      { ...base, id: 'cnt_1', locale: 'en-US', channel: 'default', title: 'English default' },
     ]
-    const result = resolveContent(records, 'prod_1', 'fr', 'google', 'en', 'default')
+    const result = resolveContent(records, 'prod_1', 'fr-FR', 'google', 'en-US', 'default')
     expect(result).toBeNull()
   })
 

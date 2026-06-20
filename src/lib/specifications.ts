@@ -1,3 +1,5 @@
+import { canonicalPimLocaleOrEmpty } from './locales'
+
 export interface PimSpecification {
   key: string
   label: string
@@ -21,6 +23,7 @@ interface ProductSource {
   title?: unknown
   description?: unknown
   metadata?: unknown
+  variants?: unknown
 }
 
 interface ContentRecord extends Record<string, unknown> {}
@@ -42,7 +45,7 @@ function specificationValue(value: unknown): string {
     return String(value)
   }
   if (Array.isArray(value)) {
-    return value.map(specificationValue).filter(Boolean).join(', ')
+    return value.map(specificationValue).filter((item) => Boolean(item)).join(', ')
   }
   if (value && typeof value === 'object') {
     return Object.entries(value)
@@ -50,7 +53,7 @@ function specificationValue(value: unknown): string {
         const formatted = specificationValue(nestedValue)
         return formatted ? `${key}: ${formatted}` : ''
       })
-      .filter(Boolean)
+      .filter((item) => Boolean(item))
       .join(', ')
   }
   return ''
@@ -79,15 +82,7 @@ function visibleMetadataFields(
 }
 
 export function normalizePimLocale(locale: unknown): string {
-  if (typeof locale !== 'string') {
-    return ''
-  }
-
-  return locale.trim().toLowerCase().replace(/_/g, '-')
-}
-
-export function normalizePimLanguage(locale: unknown): string {
-  return normalizePimLocale(locale).split('-')[0] ?? ''
+  return canonicalPimLocaleOrEmpty(locale)
 }
 
 export function localeMatches(recordLocale: unknown, requestedLocale: unknown): boolean {
@@ -98,7 +93,7 @@ export function localeMatches(recordLocale: unknown, requestedLocale: unknown): 
     return false
   }
 
-  return record === requested || normalizePimLanguage(record) === normalizePimLanguage(requested)
+  return record === requested
 }
 
 export function hasUsableSpecifications(
@@ -132,11 +127,7 @@ function localeScore(recordLocale: unknown, requestedLocale: string): number {
     return 0
   }
 
-  if (localeMatches(recordLocale, requestedLocale)) {
-    return 1
-  }
-
-  return 2
+  return 1
 }
 
 export function filterPimContentRecords(
@@ -182,16 +173,6 @@ export function resolveBestPimContentRecord(
   }).filter((record) => channelScore(record.channel, channel, defaultChannel) < 3)
 
   matches.sort((a, b) => {
-    if (options.preferSpecifications) {
-      const specDelta =
-        Number(hasUsableSpecifications(b.specifications_json)) -
-        Number(hasUsableSpecifications(a.specifications_json))
-
-      if (specDelta !== 0) {
-        return specDelta
-      }
-    }
-
     const localeDelta =
       localeScore(a.locale, options.locale) - localeScore(b.locale, options.locale)
     if (localeDelta !== 0) {
@@ -203,6 +184,16 @@ export function resolveBestPimContentRecord(
       channelScore(b.channel, channel, defaultChannel)
     if (channelDelta !== 0) {
       return channelDelta
+    }
+
+    if (options.preferSpecifications) {
+      const specDelta =
+        Number(hasUsableSpecifications(b.specifications_json)) -
+        Number(hasUsableSpecifications(a.specifications_json))
+
+      if (specDelta !== 0) {
+        return specDelta
+      }
     }
 
     return String(b.updated_at ?? b.published_at ?? '').localeCompare(
@@ -339,6 +330,41 @@ export function serializeStorefrontPimContent(
   }
 }
 
+export function serializeMedusaProductFallback(
+  product: Record<string, unknown>,
+  options: {
+    productId: string
+    locale: string
+    channel: string
+  },
+): Record<string, unknown> {
+  const metadata = isRecord(product.metadata) ? product.metadata : {}
+  const supplierSpecifications = normalizeSupplierSpecifications(metadata.attributes)
+  const variants = Array.isArray(product.variants) ? product.variants : []
+
+  return {
+    product_id: options.productId,
+    locale: options.locale,
+    channel: options.channel,
+    title: product.title ?? null,
+    description: product.description ?? null,
+    short_description: null,
+    bullets: null,
+    variant_titles: variants
+      .filter((variant): variant is Record<string, unknown> => {
+        return isRecord(variant) && typeof variant.id === 'string'
+      })
+      .map((variant) => ({
+        variant_id: variant.id,
+        title: typeof variant.title === 'string' ? variant.title : '',
+      })),
+    specifications: supplierSpecifications.length > 0 ? supplierSpecifications : null,
+    seo: null,
+    metadata: null,
+    source: 'medusa_fallback',
+  }
+}
+
 export function buildPimGenerationSource(
   product: ProductSource,
   storedContent?: Record<string, unknown>,
@@ -355,16 +381,32 @@ export function buildPimGenerationSource(
     storedRawSource && typeof storedRawSource === 'object'
       ? (storedRawSource as Record<string, unknown>)
       : {}
-  const nativeContent = storedContent
-    ? {}
-    : {
-        title: product.title ?? null,
-        description: product.description ?? null,
-      }
+  const nativeProduct = {
+    title: product.title ?? null,
+    description: product.description ?? null,
+    variants: Array.isArray(product.variants)
+      ? product.variants.flatMap((variant) => {
+          if (!isRecord(variant) || typeof variant.id !== 'string') {
+            return []
+          }
+
+          return [
+            {
+              id: variant.id,
+              title: typeof variant.title === 'string' ? variant.title : null,
+              sku: typeof variant.sku === 'string' ? variant.sku : null,
+            },
+          ]
+        })
+      : [],
+  }
 
   return {
-    ...(storedContent ?? {}),
-    ...nativeContent,
+    ...(storedContent ?? {
+      title: nativeProduct.title,
+      description: nativeProduct.description,
+    }),
+    native_product_json: nativeProduct,
     specifications_json:
       storedSpecifications.length > 0
         ? storedSpecifications

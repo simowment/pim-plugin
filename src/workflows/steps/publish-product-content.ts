@@ -14,6 +14,7 @@ type PublishedContentRecord = {
 
 export interface PublishContentInput {
   content_id: string
+  product_id?: string
   archive_previous?: boolean
   actor_id?: string | null
 }
@@ -22,8 +23,14 @@ export const publishProductContentStep = createStep(
   'publish-product-content',
   async (input: PublishContentInput, { container }) => {
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
-
     const content = await pim.retrieveProductContent(input.content_id)
+
+    if (input.product_id && content.product_id !== input.product_id) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        `PIM content ${input.content_id} does not belong to product ${input.product_id}.`,
+      )
+    }
 
     if (!PUBLISHABLE_STATUSES.includes(content.status as ProductContentStatus)) {
       throw new MedusaError(
@@ -33,60 +40,83 @@ export const publishProductContentStep = createStep(
     }
 
     const previousPublished: string[] = []
+    let currentWasPublished = false
 
-    // Archive any previously published record for same product/locale/channel
-    if (input.archive_previous !== false) {
-      const [published] = await pim.listAndCountProductContents(
-        {
-          product_id: content.product_id,
-          locale: content.locale,
-          channel: content.channel,
-          status: [PUBLISHED_STATUS],
-        },
-        {},
-      )
+    try {
+      if (input.archive_previous !== false) {
+        const [published] = await pim.listAndCountProductContents(
+          {
+            product_id: content.product_id,
+            locale: content.locale,
+            channel: content.channel,
+            status: [PUBLISHED_STATUS],
+          },
+          {},
+        )
 
-      for (const prev of published as PublishedContentRecord[]) {
-        if (prev.id !== input.content_id) {
-          previousPublished.push(prev.id)
-          await pim.updateProductContents({
-            id: prev.id,
-            status: ARCHIVED_STATUS,
-          })
+        for (const prev of published as PublishedContentRecord[]) {
+          if (prev.id !== input.content_id) {
+            await pim.updateProductContents({
+              id: prev.id,
+              status: ARCHIVED_STATUS,
+            })
+            previousPublished.push(prev.id)
+          }
         }
       }
+
+      const updated = await pim.updateProductContents({
+        id: input.content_id,
+        status: PUBLISHED_STATUS,
+        published_at: new Date(),
+        updated_by: input.actor_id ?? null,
+      })
+      currentWasPublished = true
+
+      return new StepResponse(updated, {
+        content_id: input.content_id,
+        previous_status: content.status,
+        previously_published: previousPublished,
+      })
+    } catch (error) {
+      await Promise.all(
+        previousPublished.map((prevId) =>
+          pim.updateProductContents({
+            id: prevId,
+            status: PUBLISHED_STATUS,
+          }),
+        ),
+      )
+
+      if (currentWasPublished) {
+        await pim.updateProductContents({
+          id: input.content_id,
+          status: content.status as ProductContentStatus,
+          published_at: null,
+          updated_by: content.updated_by ?? null,
+        })
+      }
+
+      throw error
     }
-
-    const updated = await pim.updateProductContents({
-      id: input.content_id,
-      status: PUBLISHED_STATUS,
-      published_at: new Date(),
-      updated_by: input.actor_id ?? null,
-    })
-
-    return new StepResponse(updated, {
-      content_id: input.content_id,
-      previous_status: content.status,
-      previously_published: previousPublished,
-    })
   },
   async (compensationData, { container }) => {
     if (!compensationData) return
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
 
-    // Restore the published content back to its previous status
     await pim.updateProductContents({
       id: compensationData.content_id,
       status: compensationData.previous_status as ProductContentStatus,
       published_at: null,
     })
 
-    // Restore previously archived records back to published
-    for (const prevId of compensationData.previously_published) {
-      await pim.updateProductContents({
-        id: prevId,
-        status: PUBLISHED_STATUS,
-      })
-    }
+    await Promise.all(
+      compensationData.previously_published.map((prevId) =>
+        pim.updateProductContents({
+          id: prevId,
+          status: PUBLISHED_STATUS,
+        }),
+      ),
+    )
   },
 )

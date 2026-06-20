@@ -182,12 +182,12 @@ describe('supplier specification normalization', () => {
     ])
   })
 
-  it('resolves existing content by normalized language locale', () => {
+  it('resolves existing content by canonical locale', () => {
     const records = [
       {
         id: 'cnt_en',
         product_id: 'prod_1',
-        locale: 'en',
+        locale: 'en-US',
         channel: 'storefront',
         status: 'published',
         title: 'English',
@@ -195,7 +195,7 @@ describe('supplier specification normalization', () => {
       {
         id: 'cnt_fr',
         product_id: 'prod_1',
-        locale: 'fr',
+        locale: 'fr-FR',
         channel: 'storefront',
         status: 'published',
         title: 'French',
@@ -204,14 +204,14 @@ describe('supplier specification normalization', () => {
 
     expect(
       resolveBestPimContentRecord(records, {
-        locale: 'FR_fr',
+        locale: 'fr-FR',
         channel: 'storefront',
         statuses: ['published'],
       })?.id,
     ).toBe('cnt_fr')
   })
 
-  it('prefers existing content with specifications for the same language', () => {
+  it('prefers exact canonical content before other locales with specifications', () => {
     const records = [
       {
         id: 'cnt_empty_exact',
@@ -222,9 +222,9 @@ describe('supplier specification normalization', () => {
         specifications_json: [],
       },
       {
-        id: 'cnt_specs_language',
+        id: 'cnt_specs_other_locale',
         product_id: 'prod_1',
-        locale: 'fr',
+        locale: 'fr-CA',
         channel: 'storefront',
         status: 'reviewed',
         specifications_json: [{ key: 'material', label: 'Material', value: 'PU' }],
@@ -233,11 +233,11 @@ describe('supplier specification normalization', () => {
 
     expect(
       resolveBestPimContentRecord(records, {
-        locale: 'fr_FR',
+        locale: 'fr-FR',
         channel: 'storefront',
         statuses: ['reviewed'],
         preferSpecifications: true,
       })?.id,
-    ).toBe('cnt_specs_language')
+    ).toBe('cnt_empty_exact')
   })
 })

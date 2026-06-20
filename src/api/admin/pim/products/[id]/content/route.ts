@@ -3,19 +3,24 @@ import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../../../../../modules/pim'
 import type PimModuleService from '../../../../../../modules/pim/service'
 import { createOrUpdateProductContentWorkflow } from '../../../../../../workflows/create-or-update-product-content'
-import { getOptionalQueryString } from '../../../../../query-params'
 import type { UpsertContentSchema } from '../../../../../middlewares'
 import {
   filterPimContentRecords,
   normalizeSupplierSpecifications,
 } from '../../../../../../lib/specifications'
 
-// GET /admin/pim/products/:id/content?locale=fr&channel=storefront
+type ProductContentQuery = {
+  locale?: string
+  channel?: string
+}
+
+// GET /admin/pim/products/:id/content?locale=fr-FR&channel=storefront
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
   const { id: product_id } = req.params
-  const locale = getOptionalQueryString(req, 'locale')
-  const channel = getOptionalQueryString(req, 'channel')
+  const validatedQuery = req.validatedQuery as ProductContentQuery
+  const locale = validatedQuery.locale
+  const channel = validatedQuery.channel
 
   const filters: Record<string, unknown> = { product_id }
   if (channel) filters.channel = channel
@@ -28,11 +33,14 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     : records
 
   const query = req.scope.resolve('query')
-  const { data: products } = await query.graph({
+  const productQuery = {
     entity: 'product',
     filters: { id: product_id },
-    fields: ['id', 'metadata', 'variants.id', 'variants.title'],
-  })
+    fields: ['id', 'title', 'description', 'metadata', 'variants.id', 'variants.title'],
+  }
+  const { data: products } = locale
+    ? await query.graph(productQuery, { locale })
+    : await query.graph(productQuery)
   const product = products[0] as Record<string, unknown> | undefined
   const metadata =
     product?.metadata && typeof product.metadata === 'object'
@@ -41,6 +49,13 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
 
   res.json({
     content: contents,
+    product: product
+      ? {
+          id: product.id,
+          title: product.title ?? null,
+          description: product.description ?? null,
+        }
+      : null,
     supplier_specifications: normalizeSupplierSpecifications(metadata.attributes),
     variants: (Array.isArray(product?.variants) ? product.variants : [])
       .filter((variant): variant is Record<string, unknown> => {

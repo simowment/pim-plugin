@@ -2,7 +2,7 @@ import { AuthenticatedMedusaRequest, MedusaResponse } from '@medusajs/framework/
 import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../../../../modules/pim'
 import type PimModuleService from '../../../../../modules/pim/service'
-import { archiveProductContentWorkflow } from '../../../../../workflows/archive-product-content'
+import { deleteProductContentWorkflow } from '../../../../../workflows/delete-product-content'
 
 // GET /admin/pim/content/:id
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
@@ -17,14 +17,15 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   res.json({ content })
 }
 
-// DELETE /admin/pim/content/:id - archives, does not hard-delete
+// DELETE /admin/pim/content/:id
 export async function DELETE(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   const { id } = req.params
+  const actor_id = req.auth_context.actor_id
 
-  const { result } = await archiveProductContentWorkflow(req.scope).run({
+  const { result } = await deleteProductContentWorkflow(req.scope).run({
     input: {
       id,
-      actor_id: req.auth_context.actor_id,
+      actor_id,
     },
   })
 

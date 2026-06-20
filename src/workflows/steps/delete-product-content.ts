@@ -4,23 +4,31 @@ import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 import type { ProductContentStatus } from '../../modules/pim/models/product-content'
 
-export interface ArchiveProductContentInput {
+export interface DeleteProductContentInput {
   id: string
   actor_id?: string | null
 }
 
+const PUBLISHED_STATUS: ProductContentStatus = 'published'
 const ARCHIVED_STATUS: ProductContentStatus = 'archived'
 
-export const archiveProductContentStep = createStep(
-  'archive-product-content',
-  async (input: ArchiveProductContentInput, { container }) => {
+export const deleteProductContentStep = createStep(
+  'delete-product-content',
+  async (input: DeleteProductContentInput, { container }) => {
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
     const content = await pim.retrieveProductContent(input.id)
 
-    if (content.status === 'published') {
+    if (content.status === PUBLISHED_STATUS) {
       throw new MedusaError(
-        MedusaError.Types.NOT_ALLOWED,
-        'Cannot archive a published content record. Unpublish or replace it first.',
+        MedusaError.Types.UNEXPECTED_STATE,
+        'Published PIM content cannot be deleted. Archive or replace it by publishing another draft first.',
+      )
+    }
+
+    if (content.status === ARCHIVED_STATUS) {
+      return new StepResponse(
+        { id: input.id, archived: true },
+        null,
       )
     }
 
@@ -31,11 +39,12 @@ export const archiveProductContentStep = createStep(
     })
 
     return new StepResponse(
-      { id: input.id, archived: true, deleted: true },
+      { id: input.id, archived: true },
       {
         id: input.id,
-        previous_status: content.status,
-        previous_updated_by: content.updated_by ?? null,
+        status: content.status as ProductContentStatus,
+        published_at: content.published_at ?? null,
+        updated_by: content.updated_by ?? null,
       },
     )
   },
@@ -43,10 +52,6 @@ export const archiveProductContentStep = createStep(
     if (!previous) return
 
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
-    await pim.updateProductContents({
-      id: previous.id,
-      status: previous.previous_status as ProductContentStatus,
-      updated_by: previous.previous_updated_by,
-    })
+    await pim.updateProductContents(previous)
   },
 )

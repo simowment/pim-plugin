@@ -2,6 +2,8 @@ import { createStep, StepResponse } from '@medusajs/framework/workflows-sdk'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 import { PIM_MUTABLE_STATUSES, resolveBestPimContentRecord } from '../../lib/specifications'
+import { assertCanonicalPimLocale } from '../../lib/locales'
+import { resolveDefaultPimChannel } from '../../lib/channels'
 import { getRecordId, type IdentifiableRecord } from '../../lib/records'
 import type {
   ProductContentSource,
@@ -10,7 +12,6 @@ import type {
 import type { ProductContentVersionActorType } from '../../modules/pim/models/product-content-version'
 
 const DRAFT_STATUS: ProductContentStatus = 'draft'
-const DEFAULT_CHANNEL = 'storefront'
 
 export interface CreateOrUpdateContentInput {
   product_id: string
@@ -47,9 +48,11 @@ export const createOrUpdateProductContentStep = createStep(
   async (input: CreateOrUpdateContentInput, { container }) => {
     const pim = container.resolve<PimModuleService>(PIM_MODULE)
 
-    const channel = input.channel ?? DEFAULT_CHANNEL
+    const defaultChannel = resolveDefaultPimChannel()
+    const channel = input.channel ?? defaultChannel
+    const locale = assertCanonicalPimLocale(input.locale, 'locale')
 
-    // Find the existing mutable draft for this product/language/channel.
+    // Find the existing mutable draft for this product/locale/channel.
     const [existingRecords] = await pim.listAndCountProductContents(
       {
         product_id: input.product_id,
@@ -61,16 +64,16 @@ export const createOrUpdateProductContentStep = createStep(
 
     const existing =
       (resolveBestPimContentRecord(existingRecords as unknown as Array<Record<string, unknown>>, {
-        locale: input.locale,
+        locale,
         channel,
-        defaultChannel: DEFAULT_CHANNEL,
+        defaultChannel,
         statuses: PIM_MUTABLE_STATUSES,
       }) as ProductContentRecord | null) ?? null
     const previousSnapshot: Record<string, unknown> | null = existing ? { ...existing } : null
 
     const contentData = {
       product_id: input.product_id,
-      locale: input.locale,
+      locale,
       channel,
       title: input.title ?? null,
       description: input.description ?? null,
@@ -90,6 +93,12 @@ export const createOrUpdateProductContentStep = createStep(
       source: input.source ?? 'manual',
       updated_by: input.updated_by ?? null,
     }
+    const contentUpdateData = input.status
+      ? {
+          ...contentData,
+          status: input.status,
+        }
+      : contentData
 
     let content: Record<string, unknown>
     let isNew = false
@@ -97,7 +106,7 @@ export const createOrUpdateProductContentStep = createStep(
     if (existing) {
       const updated = await pim.updateProductContents({
         id: existing.id,
-        ...contentData,
+        ...contentUpdateData,
       })
       content = updated as unknown as Record<string, unknown>
     } else {

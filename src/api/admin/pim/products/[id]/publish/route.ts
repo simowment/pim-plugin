@@ -12,6 +12,7 @@ export async function POST(
   const { result } = await publishProductContentWorkflow(req.scope).run({
     input: {
       ...req.validatedBody,
+      product_id: req.params.id,
       actor_id,
     },
   })
