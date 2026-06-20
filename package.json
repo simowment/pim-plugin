@@ -43,6 +43,7 @@
   "scripts": {
     "build": "medusa plugin:build && tsc && node ./scripts/clean-build.js",
     "dev": "medusa plugin:develop",
+    "dev:docker": "node ./scripts/dev-build-watch.mjs",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run --config vitest.config.ts"
   },

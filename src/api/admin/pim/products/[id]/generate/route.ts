@@ -4,6 +4,7 @@ import { generateProductContentWorkflow } from '../../../../../../workflows/gene
 import { PIM_MODULE } from '../../../../../../modules/pim'
 import type PimModuleService from '../../../../../../modules/pim/service'
 import type { GenerateContentSchema } from '../../../../../middlewares'
+import { getErrorMessage } from '../../../../../../lib/error-messages'
 import {
   PIM_ACTIVE_STATUSES,
   buildPimGenerationSource,
@@ -65,14 +66,25 @@ export async function POST(
     }) ?? undefined
   const existingContent = buildPimGenerationSource(sourceProduct, storedContent)
 
-  const { result } = await generateProductContentWorkflow(req.scope).run({
-    input: {
-      ...req.validatedBody,
-      product_id,
-      created_by: actor_id,
-      existing_content: existingContent,
-    },
-  })
+  try {
+    const { result } = await generateProductContentWorkflow(req.scope).run({
+      input: {
+        ...req.validatedBody,
+        product_id,
+        created_by: actor_id,
+        existing_content: existingContent,
+      },
+    })
 
-  res.json({ job: result.job, generated: result.generated, content: result.content })
+    res.json({ job: result.job, generated: result.generated, content: result.content })
+  } catch (error) {
+    if (error instanceof MedusaError) {
+      throw error
+    }
+
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Unable to generate PIM content: ${getErrorMessage(error)}`,
+    )
+  }
 }

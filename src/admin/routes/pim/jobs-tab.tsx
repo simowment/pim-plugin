@@ -74,10 +74,7 @@ export function JobsTab() {
   const productId = reviewJob?.product_id ?? ''
   const reviewLocale = reviewJob?.locale ?? ''
   const sourceLocale = reviewJob?.input_json?.source_locale ?? reviewLocale
-  const reviewChannel =
-    reviewJob?.input_json?.channel ??
-    configQuery.data?.config.default_channel ??
-    DEFAULT_CHANNELS[0]
+  const reviewChannel = configQuery.data?.config.default_channel ?? DEFAULT_CHANNELS[0]
   const sourceProductQuery = useQuery({
     queryKey: ['pim-review-source-product', productId, sourceLocale, reviewChannel],
     queryFn: () => {

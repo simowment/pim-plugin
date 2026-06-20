@@ -112,6 +112,7 @@ export const callAiProviderStep = createStep(
       locale: string
       mode: string
       tone: string
+      content_scope: 'full' | 'copy_specs'
       existing_content: Record<string, unknown> | null
     },
     { container },
@@ -135,8 +136,9 @@ export const callAiProviderStep = createStep(
       `[PIM] Calling AI provider for product=${input.product_id} locale=${input.locale} mode=${input.mode}`,
     )
 
-    const systemPrompt = buildSystemPrompt(input.mode, input.tone, input.locale)
-    const userPrompt = buildUserPrompt(input.mode, input.existing_content)
+    const existingContent = compactContentForScope(input.existing_content, input.content_scope)
+    const systemPrompt = buildSystemPrompt(input.mode, input.tone, input.locale, input.content_scope)
+    const userPrompt = buildUserPrompt(input.mode, existingContent)
     const modelSupportError = await validateModelSupportsJsonOutput(aiConfig)
     if (modelSupportError) {
       return new StepResponse<AiProviderStepResult>({
@@ -255,7 +257,7 @@ export const throwGenerationFailureStep = createStep(
   'throw-generation-failure',
   async (input: { error_message: string | null }) => {
     throw new MedusaError(
-      MedusaError.Types.UNEXPECTED_STATE,
+      MedusaError.Types.INVALID_DATA,
       input.error_message ?? 'AI generation failed',
     )
   },
@@ -286,7 +288,12 @@ export const finalizeJobStep = createStep(
 
 // ─── prompt helpers ────────────────────────────────────────────────────────
 
-function buildSystemPrompt(mode: string, tone: string, locale: string): string {
+function buildSystemPrompt(
+  mode: string,
+  tone: string,
+  locale: string,
+  contentScope: 'full' | 'copy_specs',
+): string {
   const toneDesc =
     tone === 'luxury'
       ? 'Premium, aspirational, evocative language.'
@@ -305,15 +312,47 @@ function buildSystemPrompt(mode: string, tone: string, locale: string): string {
     full: 'Generate complete product content: title, description, specifications, and SEO fields.',
   }
 
+  const fieldInstruction = contentScope === 'copy_specs'
+    ? 'Fields may include only: title, description, short_description, bullets_json (array), specifications_json (array of {key,label,value,unit,group}). Do not return variant_titles_json or seo_json.'
+    : 'Fields may include: title, description, short_description, variant_titles_json (array of {variant_id,title}), bullets_json (array), specifications_json (array of {key,label,value,unit,group}), seo_json ({title,description,keywords}).'
+  const compactInstruction = contentScope === 'copy_specs'
+    ? `Keep the JSON compact: description under ${GENERATED_DESCRIPTION_MAX_CHARACTERS} characters, short_description under ${GENERATED_SHORT_DESCRIPTION_MAX_CHARACTERS} characters, bullets_json up to ${GENERATED_BULLET_LIMIT} items, and specifications_json up to ${GENERATED_SPECIFICATION_LIMIT} customer-relevant items.`
+    : `Use only variant_id values present in native_product_json.variants.
+Keep the JSON compact: description under ${GENERATED_DESCRIPTION_MAX_CHARACTERS} characters, short_description under ${GENERATED_SHORT_DESCRIPTION_MAX_CHARACTERS} characters, variant_titles_json up to ${GENERATED_VARIANT_TITLE_LIMIT} items, bullets_json up to ${GENERATED_BULLET_LIMIT} items, specifications_json up to ${GENERATED_SPECIFICATION_LIMIT} customer-relevant items, and seo_json.keywords up to ${GENERATED_SEO_KEYWORD_LIMIT} items.
+If the product has many variants or the answer may exceed the token limit, omit variant_titles_json instead of truncating JSON.`
+
   return `You are a professional e-commerce content writer. ${modeDesc[mode] ?? modeDesc.full}
 Target locale: ${locale}.
 Tone: ${toneDesc}
 Respond with a single JSON object containing only the fields you generated.
-Fields may include: title, description, short_description, variant_titles_json (array of {variant_id,title}), bullets_json (array), specifications_json (array of {key,label,value,unit,group}), seo_json ({title,description,keywords}).
-Use only variant_id values present in native_product_json.variants.
-Keep the JSON compact: description under ${GENERATED_DESCRIPTION_MAX_CHARACTERS} characters, short_description under ${GENERATED_SHORT_DESCRIPTION_MAX_CHARACTERS} characters, variant_titles_json up to ${GENERATED_VARIANT_TITLE_LIMIT} items, bullets_json up to ${GENERATED_BULLET_LIMIT} items, specifications_json up to ${GENERATED_SPECIFICATION_LIMIT} customer-relevant items, and seo_json.keywords up to ${GENERATED_SEO_KEYWORD_LIMIT} items.
-If the product has many variants or the answer may exceed the token limit, omit variant_titles_json instead of truncating JSON.
+${fieldInstruction}
+${compactInstruction}
 Return valid JSON only, with no markdown or commentary.`
+}
+
+function compactContentForScope(
+  existing: Record<string, unknown> | null,
+  contentScope: 'full' | 'copy_specs',
+): Record<string, unknown> | null {
+  if (!existing || contentScope !== 'copy_specs') {
+    return existing
+  }
+
+  const nativeProduct = isRecord(existing.native_product_json)
+    ? existing.native_product_json
+    : {}
+
+  return {
+    title: existing.title ?? nativeProduct.title ?? null,
+    short_description: existing.short_description ?? null,
+    description: existing.description ?? nativeProduct.description ?? null,
+    bullets_json: existing.bullets_json ?? null,
+    specifications_json: existing.specifications_json ?? null,
+    native_product_json: {
+      title: nativeProduct.title ?? null,
+      description: nativeProduct.description ?? null,
+    },
+  }
 }
 
 function buildUserPrompt(mode: string, existing: Record<string, unknown> | null): string {

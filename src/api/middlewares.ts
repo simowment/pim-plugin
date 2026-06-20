@@ -75,6 +75,7 @@ export const GenerateContentSchema = z.object({
   channel: z.string().optional(),
   mode: z.enum(['translate', 'rewrite', 'extract_specs', 'seo', 'full']),
   tone: z.enum(['neutral', 'luxury', 'technical', 'seo']).optional(),
+  content_scope: z.enum(['full', 'copy_specs']).optional(),
   save_as: z.enum(['draft', 'job_only']).optional(),
 })
 export interface GenerateContentSchema extends z.infer<typeof GenerateContentSchema> {}

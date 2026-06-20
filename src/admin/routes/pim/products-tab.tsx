@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, Trash } from '@medusajs/icons'
 import { Button, IconButton, Input, Label, Select, Text, Textarea, toast } from '@medusajs/ui'
 import { sdk } from '../../lib/sdk'
+import { getErrorMessage } from '../../../lib/error-messages'
 import { AiDraftHelper } from './ai-draft-helper'
+import { AutoTranslatePanel } from './auto-translate-panel'
 import { LocaleStatusStrip } from './locale-status-strip'
 import { MetadataFieldInput } from './metadata-field-input'
 import { MobileProductPicker } from './mobile-product-picker'
@@ -47,8 +49,6 @@ export function ProductsTab() {
   const [selectedProductId, setSelectedProductId] = useState('')
   const [selectedProductSnapshot, setSelectedProductSnapshot] = useState<AdminProduct | null>(null)
   const [locale, setLocale] = useState('fr-FR')
-  const [channel, setChannel] = useState(DEFAULT_CHANNELS[0])
-  const [hasAppliedDefaultChannel, setHasAppliedDefaultChannel] = useState(false)
   const [form, setForm] = useState(emptyForm)
   const [productPage, setProductPage] = useState(0)
   const [variantTitlePage, setVariantTitlePage] = useState(FIRST_PAGE_INDEX)
@@ -65,8 +65,8 @@ export function ProductsTab() {
     queryKey: ['pim-admin-config'],
     queryFn: () => sdk.client.fetch<{ config: PimAdminConfig }>('/admin/pim/config'),
   })
-  const channels = configQuery.data?.config.channels ?? DEFAULT_CHANNELS
   const defaultChannel = configQuery.data?.config.default_channel ?? DEFAULT_CHANNELS[0]
+  const channel = defaultChannel
   const locales = DEFAULT_LOCALES
 
   useEffect(() => {
@@ -222,29 +222,6 @@ export function ProductsTab() {
   }, [form, activeContent, selectedProduct, displayedSpecifications, displayedVariantTitles])
 
   useEffect(() => {
-    if (!configQuery.data?.config) {
-      return
-    }
-
-    if (!hasAppliedDefaultChannel) {
-      setChannel(defaultChannel)
-      setHasAppliedDefaultChannel(true)
-      return
-    }
-
-    if (!channels.includes(channel) && !isDirty) {
-      setChannel(defaultChannel)
-    }
-  }, [
-    channel,
-    channels,
-    configQuery.data?.config,
-    defaultChannel,
-    hasAppliedDefaultChannel,
-    isDirty,
-  ])
-
-  useEffect(() => {
     setForm({
       title: activeContent?.title ?? selectedProduct?.title ?? '',
       short_description: activeContent?.short_description ?? '',
@@ -312,15 +289,6 @@ export function ProductsTab() {
     return true
   }
 
-  const handleChannelSelect = (item: string) => {
-    if (!confirmSwitch()) {
-      return false
-    }
-
-    setChannel(item)
-    return true
-  }
-
   const invalidateContent = () => {
     queryClient.invalidateQueries({
       queryKey: ['pim-product-content', selectedProductId, locale, channel],
@@ -330,32 +298,34 @@ export function ProductsTab() {
     queryClient.invalidateQueries({ queryKey: ['pim-jobs'] })
   }
 
+  const buildDraftBody = () => ({
+    locale,
+    channel,
+    title: form.title || null,
+    short_description: form.short_description || null,
+    description: form.description || null,
+    variant_titles_json: form.variant_titles_json,
+    bullets_json: form.bullets_json,
+    specifications_json: form.specifications_json,
+    seo_json: {
+      title: form.seo_title || undefined,
+      description: form.seo_description || undefined,
+      keywords: form.seo_keywords
+        .split(',')
+        .map((keyword) => keyword.trim())
+        .filter((keyword) => Boolean(keyword)),
+    },
+    custom_metadata_json: form.custom_metadata_json,
+    change_reason: form.change_reason || `PIM ${locale}/${channel} edit`,
+  })
+
   const saveDraftMutation = useMutation({
     mutationFn: () =>
       sdk.client.fetch<{ content: PimContent }>(
         `/admin/pim/products/${selectedProductId}/content`,
         {
           method: 'POST',
-          body: {
-            locale,
-            channel,
-            title: form.title || null,
-            short_description: form.short_description || null,
-            description: form.description || null,
-            variant_titles_json: form.variant_titles_json,
-            bullets_json: form.bullets_json,
-            specifications_json: form.specifications_json,
-            seo_json: {
-              title: form.seo_title || undefined,
-              description: form.seo_description || undefined,
-              keywords: form.seo_keywords
-                .split(',')
-                .map((keyword) => keyword.trim())
-                .filter((keyword) => Boolean(keyword)),
-            },
-            custom_metadata_json: form.custom_metadata_json,
-            change_reason: form.change_reason || `PIM ${locale}/${channel} edit`,
-          },
+          body: buildDraftBody(),
         },
       ),
     onSuccess: () => {
@@ -395,12 +365,33 @@ export function ProductsTab() {
       toast.success('AI draft started. Review it in the AI Review Queue when it is ready.')
       invalidateContent()
     },
-    onError: (error: Error) => {
-      const msg = error.message || 'AI generation failed. Check backend logs for details.'
-      toast.error(msg, { duration: 8000 })
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error), { duration: 8000 })
       console.error('[PIM] Generate error:', error)
     },
   })
+
+  const saveCurrentDraftForTranslation = async () => {
+    await sdk.client.fetch(`/admin/pim/products/${selectedProductId}/content`, {
+      method: 'POST',
+      body: buildDraftBody(),
+    })
+  }
+
+  const translateCopySpecsDraft = async (sourceLocale: string, targetLocale: string) => {
+    await sdk.client.fetch(`/admin/pim/products/${selectedProductId}/generate`, {
+      method: 'POST',
+      body: {
+        source_locale: sourceLocale,
+        target_locale: targetLocale,
+        channel,
+        mode: 'translate',
+        tone: aiTone,
+        content_scope: 'copy_specs',
+        save_as: 'draft',
+      },
+    })
+  }
 
   const canPublish =
     activeContent && ['draft', 'ai_generated', 'reviewed'].includes(activeContent.status)
@@ -470,7 +461,7 @@ export function ProductsTab() {
   }, [])
 
   return (
-    <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[17rem_minmax(0,1fr)] lg:gap-4">
+    <div className="mt-2 grid grid-cols-1 gap-3 lg:grid-cols-[15rem_minmax(0,1fr)]">
       <ProductListSidebar
         className="hidden lg:flex"
         products={products}
@@ -528,24 +519,17 @@ export function ProductsTab() {
           }}
         />
 
-        {/* Main product PIM editor workspace */}
         <ProductEditorShell>
           {configQuery.isLoading ? (
             <LoadingState />
           ) : configQuery.isError ? (
-            <ErrorState message="Unable to load PIM channel configuration." />
+            <ErrorState message="Unable to load PIM configuration." />
           ) : (
             <>
               <ProductEditorHeader
-                channels={channels}
-                channel={channel}
                 content={activeContent}
-                locale={locale}
-                locales={locales}
                 product={selectedProduct}
                 productId={selectedProductId}
-                onChannelSelect={handleChannelSelect}
-                onLocaleSelect={handleLocaleSelect}
               />
 
               {!selectedProduct ? (
@@ -587,44 +571,101 @@ export function ProductsTab() {
               onTabChange={setEditorTab}
             >
               {editorTab === 'copy' && (
-                <>
-                  {/* Basic Fields */}
-                  <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem] 2xl:grid-cols-[minmax(0,1.25fr)_minmax(20rem,0.75fr)]">
+                  <AutoTranslatePanel
+                    locales={locales}
+                    currentLocale={locale}
+                    selectedProductId={selectedProductId}
+                    isDirty={isDirty}
+                    isBusy={saveDraftMutation.isPending || generateMutation.isPending}
+                    onSaveSource={saveCurrentDraftForTranslation}
+                    onTranslateLocale={translateCopySpecsDraft}
+                    onComplete={invalidateContent}
+                  />
+
+                  <div className="space-y-3">
                     <Text size="base" weight="plus" className="border-b pb-2">
                       Copy Writing
                     </Text>
-                    <Field label="Enriched Title">
-                      <Input
-                        value={form.title}
-                        onChange={(event) => setForm({ ...form, title: event.target.value })}
-                      />
-                    </Field>
-                    <Field label="Short Description">
-                      <Input
-                        value={form.short_description}
-                        onChange={(event) =>
-                          setForm({ ...form, short_description: event.target.value })
-                        }
-                      />
-                    </Field>
+                    <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
+                      <Field label="Enriched Title">
+                        <Input
+                          value={form.title}
+                          onChange={(event) => setForm({ ...form, title: event.target.value })}
+                        />
+                      </Field>
+                      <Field label="Short Description">
+                        <Input
+                          value={form.short_description}
+                          onChange={(event) =>
+                            setForm({ ...form, short_description: event.target.value })
+                          }
+                        />
+                      </Field>
+                    </div>
                     <Field label="Full Description">
                       <Textarea
-                        rows={6}
+                        rows={7}
                         value={form.description}
                         onChange={(event) => setForm({ ...form, description: event.target.value })}
                       />
                     </Field>
                   </div>
 
-                  <div className="space-y-3 pt-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between border-b pb-2">
+                      <Text size="base" weight="plus">
+                        Bullet Highlights
+                      </Text>
+                      <Button size="small" variant="secondary" onClick={addBullet}>
+                        <Plus /> Add Bullet
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-1">
+                      {form.bullets_json.map((bullet, index) => (
+                        <div
+                          key={index}
+                          className="bg-ui-bg-subtle flex items-start gap-2 rounded-lg border p-2"
+                        >
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <Input
+                              placeholder="Label"
+                              value={bullet.label ?? ''}
+                              onChange={(e) => updateBullet(index, { label: e.target.value })}
+                            />
+                            <Textarea
+                              placeholder="Highlight copy..."
+                              rows={2}
+                              value={bullet.text}
+                              onChange={(e) => updateBullet(index, { text: e.target.value })}
+                            />
+                          </div>
+                          <IconButton
+                            size="small"
+                            variant="transparent"
+                            aria-label={`Remove bullet ${index + PAGE_DISPLAY_OFFSET}`}
+                            onClick={() => removeBullet(index)}
+                          >
+                            <Trash className="text-ui-fg-danger" />
+                          </IconButton>
+                        </div>
+                      ))}
+                      {!form.bullets_json.length && (
+                        <Text size="small" className="text-ui-fg-muted italic">
+                          No highlights yet.
+                        </Text>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 lg:col-span-2">
                     <div className="flex flex-col gap-3 border-b pb-3 sm:flex-row sm:items-end sm:justify-between">
                       <div className="min-w-0">
                         <Text size="base" weight="plus">
                           Variant Names
                         </Text>
                         <Text size="small" leading="compact" className="text-ui-fg-subtle">
-                          Translate customer-facing variant names for the selected locale and
-                          channel.
+                          Translate customer-facing variant names for the selected locale.
                         </Text>
                         {variants.length > FIRST_PAGE_INDEX && (
                           <Text size="xsmall" leading="compact" className="text-ui-fg-muted mt-1">
@@ -717,54 +758,7 @@ export function ProductsTab() {
                       )}
                     </div>
                   </div>
-
-                  {/* Bullet Points Repeating Field */}
-                  <div className="space-y-3 pt-4">
-                    <div className="flex items-center justify-between border-b pb-2">
-                      <Text size="base" weight="plus">
-                        Bullet Highlights
-                      </Text>
-                      <Button size="small" variant="secondary" onClick={addBullet}>
-                        <Plus /> Add Bullet
-                      </Button>
-                    </div>
-                    <div className="space-y-2">
-                      {form.bullets_json.map((bullet, index) => (
-                        <div
-                          key={index}
-                          className="bg-ui-bg-subtle flex items-start gap-2 rounded-lg border p-3"
-                        >
-                          <div className="flex-1 space-y-2">
-                            <Input
-                              placeholder="Header/Label (e.g. Eco-Friendly)"
-                              value={bullet.label ?? ''}
-                              onChange={(e) => updateBullet(index, { label: e.target.value })}
-                            />
-                            <Textarea
-                              placeholder="Highlight copy..."
-                              rows={2}
-                              value={bullet.text}
-                              onChange={(e) => updateBullet(index, { text: e.target.value })}
-                            />
-                          </div>
-                          <IconButton
-                            size="small"
-                            variant="transparent"
-                            aria-label={`Remove bullet ${index + PAGE_DISPLAY_OFFSET}`}
-                            onClick={() => removeBullet(index)}
-                          >
-                            <Trash className="text-ui-fg-danger" />
-                          </IconButton>
-                        </div>
-                      ))}
-                      {!form.bullets_json.length && (
-                        <Text size="small" className="text-ui-fg-muted italic">
-                          No highlights defined yet. Click "Add Bullet" to summarize benefits.
-                        </Text>
-                      )}
-                    </div>
-                  </div>
-                </>
+                </div>
               )}
 
               {editorTab === 'specs' && (

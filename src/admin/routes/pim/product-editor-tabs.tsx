@@ -68,7 +68,7 @@ export function ProductEditorTabs({ activeTab, onTabChange }: ProductEditorTabsP
             tabIndex={activeTab === tab.value ? 0 : -1}
             onClick={() => onTabChange(tab.value)}
             onKeyDown={(event) => handleKeyDown(event, tab.value)}
-            className={`border-b-2 px-2 py-3 text-center transition-colors ${
+            className={`border-b-2 px-2 py-2 text-center transition-colors ${
               activeTab === tab.value
                 ? 'border-ui-border-strong bg-ui-bg-base text-ui-fg-base'
                 : 'text-ui-fg-muted hover:text-ui-fg-base border-transparent'

@@ -28,8 +28,8 @@ export function ProductEditorActionBar({
   onSaveDraft,
 }: ProductEditorActionBarProps) {
   return (
-    <div className="border-ui-border-base bg-ui-bg-base sticky bottom-0 z-20 shrink-0 border-t p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+    <div className="sticky bottom-0 z-20 shrink-0 border-t border-ui-border-base bg-ui-bg-base p-3">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-end">
         <div className="min-w-0 flex-1 space-y-1">
           <Label htmlFor={CHANGE_REASON_INPUT_ID} className="text-ui-fg-subtle text-xs">
             Change note

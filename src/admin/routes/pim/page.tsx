@@ -10,14 +10,11 @@ const PimPage = () => {
   const [activeTab, setActiveTab] = useState('products')
 
   return (
-    <div className="flex flex-col gap-y-3 p-3 sm:p-4">
+    <div className="flex flex-col gap-y-2 p-3">
       <div className="flex items-center justify-between">
         <div className="min-w-0">
           <Text size="xlarge" weight="plus">
             Product Content Manager
-          </Text>
-          <Text size="small" className="text-ui-fg-subtle">
-            Edit product copy, organize specifications, review AI drafts, and manage reusable content fields.
           </Text>
         </div>
       </div>

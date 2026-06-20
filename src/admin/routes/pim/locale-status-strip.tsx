@@ -49,7 +49,7 @@ export function LocaleStatusStrip({
 
   return (
     <>
-      <div className="order-1 border-b border-ui-border-base bg-ui-bg-subtle px-4 py-3 xl:hidden">
+      <div className="order-1 border-b border-ui-border-base bg-ui-bg-subtle px-4 py-2 xl:hidden">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <Text size="small" leading="compact" weight="plus">
@@ -101,7 +101,7 @@ export function LocaleStatusStrip({
         </Drawer>
       </div>
 
-      <div className="order-2 hidden border-l border-ui-border-base bg-ui-bg-subtle px-3 py-4 xl:block">
+      <div className="order-2 hidden border-l border-ui-border-base bg-ui-bg-subtle px-2 py-3 xl:block">
         <Text size="small" leading="compact" weight="plus">
           Locales {activeLocaleCount}/{locales.length}
         </Text>
@@ -129,11 +129,11 @@ interface LocaleRowsProps {
 
 function LocaleRows({ localeRows, selectedLocale, onLocaleSelect }: LocaleRowsProps) {
   return (
-    <div className="mt-2 flex flex-col gap-2">
+    <div className="mt-2 flex flex-col gap-1.5">
       {localeRows.map((row) => (
         <button
           key={row.code}
-          className={`w-full rounded-md border px-3 py-2 text-left transition-colors outline-none hover:bg-ui-bg-component-hover focus-visible:shadow-borders-interactive-with-focus ${
+          className={`w-full rounded-md border px-2 py-2 text-left transition-colors outline-none hover:bg-ui-bg-component-hover focus-visible:shadow-borders-interactive-with-focus ${
           selectedLocale === row.code
             ? 'border-ui-border-strong bg-ui-bg-component shadow-elevation-card-rest'
             : 'border-transparent'
@@ -147,9 +147,9 @@ function LocaleRows({ localeRows, selectedLocale, onLocaleSelect }: LocaleRowsPr
             </Text>
             {statusBadge(row.content?.status)}
           </div>
-          <div className="mt-1 flex items-center justify-between gap-2">
+          <div className="mt-1 flex items-center justify-between gap-1">
             <Text size="xsmall" leading="compact" className="text-ui-fg-subtle">
-              {row.content ? `${row.completion}% complete` : 'No localized copy'}
+              {row.content ? `${row.completion}%` : 'Empty'}
             </Text>
             <Text size="xsmall" leading="compact" weight="plus">
               {row.content ? 'Continue' : 'Create'}

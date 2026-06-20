@@ -125,7 +125,7 @@ export function MetadataFieldsTab() {
             Field Templates
           </Text>
           <Text size="small" className="text-ui-fg-subtle">
-            Define reusable product fields that should appear consistently across products, locales, or storefront channels.
+            Define reusable product fields that should appear consistently across products and locales.
           </Text>
         </div>
         <Button size="small" onClick={() => setShowForm(!showForm)}>
@@ -215,7 +215,7 @@ export function MetadataFieldsTab() {
             </Field>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-3 bg-ui-bg-base border rounded-lg">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-3 bg-ui-bg-base border rounded-lg">
             <div className="flex items-center gap-2">
               <Checkbox
                 id="req"
@@ -231,16 +231,6 @@ export function MetadataFieldsTab() {
                 onCheckedChange={(checked) => setNewField({ ...newField, localized: Boolean(checked) })}
               />
               <Label htmlFor="loc">Different per language</Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="ch"
-                checked={newField.channel_specific}
-                onCheckedChange={(checked) =>
-                  setNewField({ ...newField, channel_specific: Boolean(checked) })
-                }
-              />
-              <Label htmlFor="ch">Different per channel</Label>
             </div>
             <div className="flex items-center gap-2">
               <Checkbox
@@ -294,7 +284,6 @@ export function MetadataFieldsTab() {
                     <div className="flex flex-wrap gap-1">
                       {field.required && <Badge size="2xsmall" color="red">Required</Badge>}
                       {field.localized && <Badge size="2xsmall" color="blue">Locale</Badge>}
-                      {field.channel_specific && <Badge size="2xsmall" color="orange">Channel</Badge>}
                     </div>
                   </Table.Cell>
                   <Table.Cell>
@@ -368,7 +357,7 @@ export function MetadataFieldsTab() {
                           .filter((option): option is { label: string; value: string } => option !== null),
                         required: editField.required,
                         localized: editField.localized,
-                        channel_specific: editField.channel_specific,
+                        channel_specific: false,
                         visible_in_storefront: editField.visible_in_storefront,
                       })
                     }
@@ -415,16 +404,6 @@ export function MetadataFieldsTab() {
                     }
                   />
                   <Label htmlFor="edit-loc">Different per language</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="edit-ch"
-                    checked={editField.channel_specific}
-                    onCheckedChange={(checked) =>
-                      setEditField({ ...editField, channel_specific: Boolean(checked) })
-                    }
-                  />
-                  <Label htmlFor="edit-ch">Different per channel</Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <Checkbox

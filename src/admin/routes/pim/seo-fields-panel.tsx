@@ -44,7 +44,7 @@ export function SeoFieldsPanel({
           SEO Optimization
         </Text>
         <Text size="small" leading="compact" className="text-ui-fg-subtle">
-          Tune the search snippet for the selected locale and channel.
+          Tune the search snippet for the selected locale.
         </Text>
       </div>
 

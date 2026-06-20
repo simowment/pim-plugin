@@ -21,7 +21,7 @@ interface ProductEditorWorkspaceProps {
 
 export function ProductEditorShell({ children }: ProductEditorShellProps) {
   return (
-    <Container className="flex min-h-0 flex-col overflow-visible lg:h-[calc(100vh-14rem)] lg:overflow-hidden">
+    <Container className="flex min-h-0 flex-col overflow-visible lg:h-[calc(100vh-9.5rem)] lg:overflow-hidden">
       {children}
     </Container>
   )
@@ -35,14 +35,14 @@ export function ProductEditorWorkspace({
   onTabChange,
 }: ProductEditorWorkspaceProps) {
   return (
-    <div className="grid flex-1 grid-cols-1 overflow-visible xl:grid-cols-[minmax(0,1fr)_11rem] xl:overflow-hidden">
-      <div className="order-2 flex min-h-0 flex-col overflow-visible lg:order-1 lg:h-full lg:overflow-hidden">
+    <div className="grid flex-1 grid-cols-1 overflow-visible xl:grid-cols-[minmax(0,1fr)_9rem] xl:overflow-hidden">
+      <div className="order-2 flex min-h-0 flex-col overflow-visible xl:order-1 xl:h-full xl:overflow-hidden">
         <ProductEditorTabs activeTab={activeTab} onTabChange={onTabChange} />
         <div
           id={productEditorPanelId(activeTab)}
           role="tabpanel"
           aria-labelledby={`pim-editor-tab-${activeTab}`}
-          className="flex-1 space-y-6 overflow-visible px-4 pb-28 pt-4 sm:px-6 lg:overflow-y-auto"
+          className="flex-1 space-y-4 overflow-visible px-4 pb-24 pt-3 lg:overflow-y-auto"
         >
           {children}
         </div>

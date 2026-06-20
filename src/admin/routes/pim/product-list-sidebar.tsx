@@ -1,7 +1,7 @@
 import { Button, Container, Input, Text } from '@medusajs/ui'
 import { LoadingState, type AdminProduct } from './shared'
 
-const PRODUCT_LIST_HEIGHT_CLASS = 'h-[calc(100vh-14rem)]'
+const PRODUCT_LIST_HEIGHT_CLASS = 'h-[calc(100vh-9.5rem)]'
 const TITLE_TWO_LINE_STYLE = {
   display: '-webkit-box',
   WebkitBoxOrient: 'vertical',
@@ -41,7 +41,7 @@ export function ProductListSidebar({
 }: ProductListSidebarProps) {
   const content = (
     <>
-      <div className="border-b border-ui-border-base px-6 py-4">
+      <div className="border-b border-ui-border-base px-3 py-3">
         <div className="flex items-center justify-between gap-3">
           <Text size="small" leading="compact" weight="plus">
             Products
@@ -50,16 +50,16 @@ export function ProductListSidebar({
             {productCount} total
           </Text>
         </div>
-        <div className="mt-3">
+        <div className="mt-2">
           <Input
-            placeholder="Search by name, SKU, or handle"
+            placeholder="Search products"
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
           />
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      <div className="flex-1 space-y-1 overflow-y-auto p-2">
         {isLoading ? (
           <LoadingState />
         ) : (
@@ -67,7 +67,7 @@ export function ProductListSidebar({
             {products.map((product) => (
               <button
                 key={product.id}
-                className={`flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors outline-none focus-visible:shadow-borders-interactive-with-focus ${
+                className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left transition-colors outline-none focus-visible:shadow-borders-interactive-with-focus ${
                   selectedProductId === product.id
                     ? 'border-ui-border-strong bg-ui-bg-component shadow-elevation-card-rest'
                     : 'border-transparent hover:bg-ui-bg-component-hover'
@@ -75,7 +75,7 @@ export function ProductListSidebar({
                 aria-current={selectedProductId === product.id ? 'page' : undefined}
                 onClick={() => onProductSelect(product.id)}
               >
-                <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-ui-bg-subtle">
+                <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-ui-bg-subtle">
                   {product.thumbnail ? (
                     <img src={product.thumbnail} alt="" className="size-full object-cover" />
                   ) : (
@@ -95,8 +95,8 @@ export function ProductListSidebar({
                   >
                     {product.title}
                   </Text>
-                  <Text size="xsmall" leading="compact" className="mt-1 truncate text-ui-fg-subtle">
-                    {product.handle ? `Handle: ${product.handle}` : `ID: ${product.id}`}
+                  <Text size="xsmall" leading="compact" className="truncate text-ui-fg-subtle">
+                    {product.handle ?? product.id}
                   </Text>
                 </div>
               </button>
@@ -111,7 +111,7 @@ export function ProductListSidebar({
       </div>
 
       {productCount > productsPerPage && (
-        <div className="border-t border-ui-border-base px-4 py-3 flex items-center justify-between bg-ui-bg-subtle">
+        <div className="flex items-center justify-between border-t border-ui-border-base bg-ui-bg-subtle px-3 py-2">
           <Button
             size="small"
             variant="secondary"

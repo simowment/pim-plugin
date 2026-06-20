@@ -26,6 +26,7 @@ export interface GenerateProductContentInput {
   channel?: string
   mode: 'translate' | 'rewrite' | 'extract_specs' | 'seo' | 'full'
   tone?: 'neutral' | 'luxury' | 'technical' | 'seo'
+  content_scope?: 'full' | 'copy_specs'
   save_as?: 'draft' | 'job_only'
   created_by?: string | null
   // Existing content to enrich (pre-fetched by route)
@@ -48,6 +49,12 @@ type GenerateProductContentWorkflowOutput = {
   content: unknown
 }
 
+function resolveGenerationContentScope(
+  input: GenerateProductContentInput,
+): NonNullable<GenerateProductContentInput['content_scope']> {
+  return input.content_scope ?? (input.mode === 'translate' ? 'copy_specs' : 'full')
+}
+
 export const generateProductContentWorkflow: ReturnWorkflow<
   GenerateProductContentInput,
   GenerateProductContentWorkflowOutput,
@@ -65,6 +72,7 @@ export const generateProductContentWorkflow: ReturnWorkflow<
         channel: input.channel,
         mode: input.mode,
         tone: input.tone,
+        content_scope: resolveGenerationContentScope(input),
       },
       created_by: input.created_by ?? null,
     }))
@@ -76,6 +84,7 @@ export const generateProductContentWorkflow: ReturnWorkflow<
       locale: input.target_locale,
       mode: input.mode,
       tone: input.tone ?? 'neutral',
+      content_scope: resolveGenerationContentScope(input),
       existing_content: input.existing_content ?? null,
     }))
     const aiResult = callAiProviderStep(aiInput)
