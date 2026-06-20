@@ -2,6 +2,8 @@
 
 Medusa v2 plugin for lightweight Product Information Management: localized product copy, structured specifications, SEO fields, metadata schemas, AI generation jobs, and storefront content delivery.
 
+> **Status:** This plugin is a work in progress. It is buggy, vibecoded, and not production-hardened. It is open source under MIT so people can fork it, fix it, simplify it, or build something better from it.
+
 ## Features
 
 - Product content per product, locale, and channel.
