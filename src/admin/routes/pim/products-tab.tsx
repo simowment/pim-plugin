@@ -21,6 +21,7 @@ import { SeoFieldsPanel } from './seo-fields-panel'
 import {
   DEFAULT_CHANNELS,
   DEFAULT_LOCALES,
+  DEFAULT_TRANSLATE_FIELDS,
   ErrorState,
   Field,
   LoadingState,
@@ -36,6 +37,7 @@ import {
   type PimContent,
   type ProductContentResponse,
   type Specification,
+  type TranslateField,
 } from './shared'
 
 const PRODUCTS_PAGE_SIZE = 10
@@ -59,6 +61,7 @@ export function ProductsTab() {
   const [aiMode, setAiMode] = useState<AiMode>('translate')
   const [aiTone, setAiTone] = useState<AiTone>('neutral')
   const [aiSourceLocale, setAiSourceLocale] = useState('fr-FR')
+  const [translateFields, setTranslateFields] = useState<TranslateField[]>(DEFAULT_TRANSLATE_FIELDS)
   const [editorTab, setEditorTab] = useState<ProductEditorTab>('copy')
 
   const configQuery = useQuery({
@@ -358,6 +361,7 @@ export function ProductsTab() {
           channel,
           mode: aiMode,
           tone: aiTone,
+          translate_fields: aiMode === 'translate' ? translateFields : undefined,
           save_as: 'draft',
         },
       }),
@@ -378,7 +382,7 @@ export function ProductsTab() {
     })
   }
 
-  const translateCopySpecsDraft = async (sourceLocale: string, targetLocale: string) => {
+  const translateCopySpecsDraft = async (sourceLocale: string, targetLocale: string, fields: TranslateField[]) => {
     await sdk.client.fetch(`/admin/pim/products/${selectedProductId}/generate`, {
       method: 'POST',
       body: {
@@ -388,13 +392,13 @@ export function ProductsTab() {
         mode: 'translate',
         tone: aiTone,
         content_scope: 'copy_specs',
+        translate_fields: fields,
         save_as: 'draft',
       },
     })
   }
 
-  const canPublish =
-    activeContent && ['draft', 'ai_generated', 'reviewed'].includes(activeContent.status)
+  const canPublish = activeContent && ['draft', 'reviewed'].includes(activeContent.status)
   const hasMetadataErrors = Object.values(metadataErrors).some((message) => Boolean(message))
 
   // Bullet list handlers
@@ -962,10 +966,12 @@ export function ProductsTab() {
                     sourceLocale={aiSourceLocale}
                     targetLocale={locale}
                     locales={locales}
+                    translateFields={translateFields}
                     isGenerating={generateMutation.isPending}
                     onModeChange={setAiMode}
                     onToneChange={setAiTone}
                     onSourceLocaleChange={setAiSourceLocale}
+                    onTranslateFieldsChange={setTranslateFields}
                     onGenerate={() => generateMutation.mutate()}
                   />
 

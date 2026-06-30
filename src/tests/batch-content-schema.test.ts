@@ -41,6 +41,9 @@ describe('BatchContentSchema', () => {
     const response = {
       json: vi.fn(),
     }
+    const query = {
+      graph: vi.fn().mockResolvedValue({ data: [{ id: 'prod_1' }] }),
+    }
     const request = {
       headers: {},
       validatedBody: {
@@ -49,9 +52,12 @@ describe('BatchContentSchema', () => {
         channel: 'mobile',
       },
       scope: {
-        resolve: vi.fn().mockReturnValue({
-          listAndCountProductContents,
-          listProductMetadataFields,
+        resolve: vi.fn().mockImplementation((key) => {
+          if (key === 'query') return query
+          return {
+            listAndCountProductContents,
+            listProductMetadataFields,
+          }
         }),
       },
     }

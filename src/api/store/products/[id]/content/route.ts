@@ -63,6 +63,10 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const product = productResult.data[0] as Record<string, unknown> | undefined
   const [records] = contentResult
 
+  if (!product) {
+    throw new MedusaError(MedusaError.Types.NOT_FOUND, `Product ${product_id} not found`)
+  }
+
   const resolved = resolveBestPimContentRecord(
     records as unknown as Array<Record<string, unknown>>,
     {
@@ -75,10 +79,6 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   )
 
   if (!resolved) {
-    if (!product) {
-      throw new MedusaError(MedusaError.Types.NOT_FOUND, `Product ${product_id} not found`)
-    }
-
     res.json({
       content: serializeMedusaProductFallback(product, {
         productId: product_id,

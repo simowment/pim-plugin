@@ -48,9 +48,15 @@ export function normalizeMetadataFieldKey(key: string): string {
 }
 
 export function normalizeMetadataFieldData<T extends MetadataFieldUpdateData>(input: T): T {
+  const scope = input.scope
+
   return {
     ...input,
     key: input.key ? normalizeMetadataFieldKey(input.key) : input.key,
+    ...(scope ? { localized: scope === 'content' } : {}),
+    channel_specific: false,
+    write_policy: 'admin',
+    validation_json: null,
   }
 }
 

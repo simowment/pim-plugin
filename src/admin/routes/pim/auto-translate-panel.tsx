@@ -1,7 +1,8 @@
 import { Sparkles } from '@medusajs/icons'
-import { Button, Select, Text, toast } from '@medusajs/ui'
+import { Button, Checkbox, Label, Select, Text, toast } from '@medusajs/ui'
 import { useEffect, useMemo, useState } from 'react'
 import { getErrorMessage } from '../../../lib/error-messages'
+import { DEFAULT_TRANSLATE_FIELDS, TRANSLATE_FIELDS, type TranslateField } from './shared'
 
 type LocaleStatus = 'idle' | 'running' | 'completed' | 'failed'
 type FlowStep = 'configure' | 'save_source' | 'translate' | 'review'
@@ -27,6 +28,13 @@ const STATUS_CLASSES: Record<LocaleStatus, string> = {
   failed: 'border-ui-tag-red-border text-ui-tag-red-text bg-ui-tag-red-bg',
 }
 
+const TRANSLATE_FIELD_LABELS: Record<TranslateField, string> = {
+  title: 'Title',
+  description: 'Description',
+  short_description: 'Short description',
+  specifications: 'Specifications',
+}
+
 interface AutoTranslatePanelProps {
   locales: string[]
   currentLocale: string
@@ -34,7 +42,7 @@ interface AutoTranslatePanelProps {
   isDirty: boolean
   isBusy: boolean
   onSaveSource: () => Promise<void>
-  onTranslateLocale: (sourceLocale: string, targetLocale: string) => Promise<void>
+  onTranslateLocale: (sourceLocale: string, targetLocale: string, fields: TranslateField[]) => Promise<void>
   onComplete: () => void
 }
 
@@ -50,6 +58,7 @@ export function AutoTranslatePanel({
 }: AutoTranslatePanelProps) {
   const [sourceLocale, setSourceLocale] = useState(currentLocale)
   const [targetLocales, setTargetLocales] = useState<string[]>([])
+  const [translateFields, setTranslateFields] = useState<TranslateField[]>(DEFAULT_TRANSLATE_FIELDS)
   const [step, setStep] = useState<FlowStep>('configure')
   const [statuses, setStatuses] = useState<Record<string, LocaleStatus>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -62,7 +71,7 @@ export function AutoTranslatePanel({
   const completedCount = targetLocales.filter((item) => statuses[item] === 'completed').length
   const visibleErrors = Object.entries(errors).filter(([locale]) => targetLocales.includes(locale))
   const isRunning = step === 'save_source' || step === 'translate'
-  const canContinue = Boolean(selectedProductId && targetLocales.length && !isBusy && !isRunning)
+  const canContinue = Boolean(selectedProductId && targetLocales.length && translateFields.length && !isBusy && !isRunning)
   const disableTargetChanges = isBusy || isRunning
   const progressLabel =
     targetLocales.length === 0
@@ -114,6 +123,12 @@ export function AutoTranslatePanel({
     setErrors({})
   }
 
+  const setTranslateField = (field: TranslateField, checked: boolean) => {
+    setTranslateFields((current) =>
+      checked ? [...new Set([...current, field])] : current.filter((item) => item !== field),
+    )
+  }
+
   const continueFlow = async () => {
     if (!canContinue) {
       return
@@ -142,7 +157,7 @@ export function AutoTranslatePanel({
 
       const results = await Promise.allSettled(
         localesToProcess.map(async (targetLocale) => {
-          await onTranslateLocale(sourceLocale, targetLocale)
+          await onTranslateLocale(sourceLocale, targetLocale, translateFields)
           return targetLocale
         }),
       )
@@ -190,7 +205,7 @@ export function AutoTranslatePanel({
                 Translation flow
               </Text>
               <Text size="small" leading="compact" className="text-ui-fg-subtle">
-                Translate copy, bullets, and specifications from one locale into selected draft locales.
+                Translate selected copy fields and specifications into selected draft locales.
               </Text>
             </div>
           </div>
@@ -297,6 +312,25 @@ export function AutoTranslatePanel({
                   </button>
                 )
               })}
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-md border border-ui-border-base bg-ui-bg-subtle p-3">
+            <Text size="xsmall" className="text-ui-fg-subtle">
+              Translate fields
+            </Text>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {TRANSLATE_FIELDS.map((field) => (
+                <div key={field} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`batch-translate-${field}`}
+                    checked={translateFields.includes(field)}
+                    disabled={disableTargetChanges}
+                    onCheckedChange={(checked) => setTranslateField(field, Boolean(checked))}
+                  />
+                  <Label htmlFor={`batch-translate-${field}`}>{TRANSLATE_FIELD_LABELS[field]}</Label>
+                </div>
+              ))}
             </div>
           </div>
 

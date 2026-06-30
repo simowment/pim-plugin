@@ -25,12 +25,20 @@ describe('metadata field helpers', () => {
       key: 'care_instructions',
       label: 'Care Instructions',
       visible_in_storefront: true,
+      channel_specific: false,
+      write_policy: 'admin',
+      validation_json: null,
     })
     expect(input.key).toBe('Care Instructions')
   })
 
   it('leaves partial updates without key untouched', () => {
-    expect(normalizeMetadataFieldData({ label: 'Material' })).toEqual({ label: 'Material' })
+    expect(normalizeMetadataFieldData({ label: 'Material' })).toEqual({
+      label: 'Material',
+      channel_specific: false,
+      write_policy: 'admin',
+      validation_json: null,
+    })
   })
 
   it('prepares partial updates with id and without undefined fields', () => {
@@ -44,6 +52,9 @@ describe('metadata field helpers', () => {
       id: 'pmf_123',
       label: 'Material',
       description: null,
+      channel_specific: false,
+      write_policy: 'admin',
+      validation_json: null,
     })
   })
 })

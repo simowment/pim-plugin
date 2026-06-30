@@ -1,10 +1,6 @@
 import { z } from '@medusajs/framework/zod'
 import { MedusaError } from '@medusajs/framework/utils'
 import { createCipheriv, createDecipheriv, createHash, createSecretKey, randomBytes } from 'crypto'
-import {
-  resolveAiGatewayConfig,
-  resolvePortkeyGatewayHeaders,
-} from './ai-gateway-config'
 import { getErrorMessage } from './error-messages'
 import { PIM_MODULE } from '../modules/pim'
 
@@ -31,32 +27,6 @@ export const KILO_MODEL = 'kilo-auto/balanced'
 const DEFAULT_AI_TEMPERATURE = 0.4
 const DEFAULT_AI_MAX_TOKENS = 2400
 const DEFAULT_AI_REQUEST_TIMEOUT_MS = 30000
-const AI_API_KEY_ENV_KEYS = [
-  'PIM_AI_API_KEY',
-  'AI_GATEWAY_API_KEY',
-  'OPENROUTER_API_KEY',
-  'KILO_API_KEY',
-  'KILOCODE_API_KEY',
-  'OPENAI_API_KEY',
-] as const
-const OPENROUTER_API_KEY_ENV_KEYS = [
-  'OPENROUTER_API_KEY',
-  'PIM_AI_API_KEY',
-  'AI_GATEWAY_API_KEY',
-] as const
-const KILO_API_KEY_ENV_KEYS = [
-  'KILO_API_KEY',
-  'KILOCODE_API_KEY',
-  'PIM_AI_API_KEY',
-  'AI_GATEWAY_API_KEY',
-] as const
-const OPENAI_API_KEY_ENV_KEYS = [
-  'OPENAI_API_KEY',
-  'PIM_AI_API_KEY',
-  'AI_GATEWAY_API_KEY',
-] as const
-const AI_BASE_URL_ENV_KEYS = ['AI_GATEWAY_URL', 'PIM_AI_BASE_URL', 'OPENAI_BASE_URL'] as const
-const AI_MODEL_ENV_KEYS = ['PIM_AI_MODEL', 'AI_MODEL', 'OPENAI_MODEL'] as const
 const PIM_AI_SETTING_KEY = 'default'
 const ENCRYPTED_SECRET_PREFIX = 'enc:v1'
 const ENCRYPTED_SECRET_SEPARATOR = ':'
@@ -146,7 +116,10 @@ interface PimAiSettingsStore {
 function parseNumber(value: string | undefined): number | undefined {
   if (!value) return undefined
   const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : undefined
+  if (!Number.isFinite(parsed)) {
+    throw new MedusaError(MedusaError.Types.INVALID_DATA, `Invalid numeric PIM AI config value: ${value}`)
+  }
+  return parsed
 }
 
 function parseHeaders(value: string | undefined): Record<string, string> | undefined {
@@ -159,47 +132,17 @@ function readOptionalEnv(name: string): string | undefined {
   return value ? value : undefined
 }
 
-function readFirstOptionalEnv(names: readonly string[]): string | undefined {
-  for (const name of names) {
-    const value = readOptionalEnv(name)
-    if (value) return value
-  }
-
-  return undefined
-}
-
 function normalizeProviderName(provider: unknown): string {
   return typeof provider === 'string' ? provider.trim().toLowerCase() : ''
 }
 
-function apiKeyEnvKeysForProvider(provider: unknown): readonly string[] {
-  const normalized = normalizeProviderName(provider)
-  if (normalized === 'openrouter') return OPENROUTER_API_KEY_ENV_KEYS
-  if (normalized === 'kilo' || normalized === 'kilocode') return KILO_API_KEY_ENV_KEYS
-  if (normalized === 'openai') return OPENAI_API_KEY_ENV_KEYS
-
-  return AI_API_KEY_ENV_KEYS
-}
-
-function resolveEnvApiKeyForProvider(provider: unknown): string | undefined {
-  return readFirstOptionalEnv(apiKeyEnvKeysForProvider(provider))
-}
-
 function resolveEnvAiConfig(): AiConfigInput {
-  const gatewayConfig = resolveAiGatewayConfig({
-    provider: readOptionalEnv('PIM_AI_PROVIDER'),
-    apiKeyEnvKeys: AI_API_KEY_ENV_KEYS,
-    baseUrlEnvKeys: AI_BASE_URL_ENV_KEYS,
-    modelEnvKeys: AI_MODEL_ENV_KEYS,
-    headers: parseHeaders(process.env.PIM_AI_HEADERS_JSON),
-  })
-
   return {
-    provider: gatewayConfig.provider,
-    api_key: resolveEnvApiKeyForProvider(gatewayConfig.provider) ?? gatewayConfig.api_key,
-    base_url: gatewayConfig.base_url,
-    model: gatewayConfig.model,
-    headers: gatewayConfig.headers,
+    provider: readOptionalEnv('PIM_AI_PROVIDER'),
+    api_key: readOptionalEnv('PIM_AI_API_KEY'),
+    base_url: readOptionalEnv('PIM_AI_BASE_URL'),
+    model: readOptionalEnv('PIM_AI_MODEL'),
+    headers: parseHeaders(process.env.PIM_AI_HEADERS_JSON),
   }
 }
 
@@ -292,6 +235,30 @@ function defaultModelForProvider(provider: unknown): string {
   return DEFAULT_AI_MODEL
 }
 
+function assertKnownProviderBaseUrl(provider: string, baseUrl: string): void {
+  const normalized = normalizeProviderName(provider)
+  const allowedProvider =
+    normalized === 'openrouter' ||
+    normalized === 'openai' ||
+    normalized === 'kilo' ||
+    normalized === 'kilocode'
+
+  if (!allowedProvider) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Unsupported PIM AI provider "${provider}". Use openrouter, openai, or kilo.`,
+    )
+  }
+
+  const expectedBaseUrl = defaultBaseUrlForProvider(provider)
+  if (baseUrl !== expectedBaseUrl) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `PIM AI base_url for provider "${provider}" must be ${expectedBaseUrl}. Custom AI base URLs are disabled to avoid leaking API keys to untrusted hosts.`,
+    )
+  }
+}
+
 function normalizeAiConfig(input: AiConfigInput): PimAiConfig {
   const provider =
     typeof input.provider === 'string' && input.provider.trim()
@@ -305,11 +272,8 @@ function normalizeAiConfig(input: AiConfigInput): PimAiConfig {
     typeof input.model === 'string' && input.model.trim()
       ? input.model.trim()
       : defaultModelForProvider(provider)
-  const headers = resolvePortkeyGatewayHeaders({
-    baseUrl,
-    headers: AiHeadersSchema.parse(input.headers ?? {}),
-    provider,
-  })
+  assertKnownProviderBaseUrl(provider, baseUrl)
+  const headers = AiHeadersSchema.parse(input.headers ?? {})
 
   return AiConfigSchema.parse({
     ...input,
@@ -397,7 +361,7 @@ export async function resolvePimAiConfigFromContainer(container: {
 
     return normalizeAiConfig({
       provider: persistedSettings.provider,
-      api_key: decryptApiKey(persistedSettings.encrypted_api_key) ?? envAi.api_key,
+      api_key: decryptApiKey(persistedSettings.encrypted_api_key),
       base_url: persistedSettings.base_url,
       model: persistedSettings.model,
       temperature: parseNumber(process.env.PIM_AI_TEMPERATURE),
@@ -422,8 +386,8 @@ export async function resolvePimAiConfigFromContainer(container: {
   return normalizeAiConfig({
     provider: providerConfig.provider,
     api_key: providerConfig.api_key,
-    base_url: readFirstOptionalEnv(AI_BASE_URL_ENV_KEYS) ?? providerConfig.base_url,
-    model: readFirstOptionalEnv(AI_MODEL_ENV_KEYS) ?? providerConfig.model,
+    base_url: providerConfig.base_url,
+    model: providerConfig.model,
     temperature: parseNumber(process.env.PIM_AI_TEMPERATURE),
     max_tokens: parseNumber(process.env.PIM_AI_MAX_TOKENS),
     request_timeout_ms: parseNumber(process.env.PIM_AI_REQUEST_TIMEOUT_MS),
@@ -441,7 +405,7 @@ export async function updatePimAiProviderConfig(
     const provider = config.provider ?? current.provider
     const normalized = normalizeAiConfig({
       provider,
-      api_key: config.api_key ?? current.api_key ?? resolveEnvApiKeyForProvider(provider),
+      api_key: config.api_key ?? current.api_key,
       base_url: config.base_url ?? current.base_url,
       model: config.model ?? current.model,
       headers: config.headers ?? current.headers ?? {},
@@ -607,8 +571,11 @@ function resolveOptionalAiGateway(container: {
       if (gateway) {
         return gateway
       }
-    } catch {
-      // Try the next optional gateway module name.
+    } catch (error) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        `Configured PIM AI gateway module "${moduleName}" could not be resolved: ${getErrorMessage(error)}`,
+      )
     }
   }
 

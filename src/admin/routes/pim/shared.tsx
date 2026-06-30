@@ -3,9 +3,12 @@ import { Badge, Label, Text } from '@medusajs/ui'
 
 export const AI_MODES = ['translate', 'rewrite', 'extract_specs', 'seo', 'full'] as const
 export const AI_TONES = ['neutral', 'luxury', 'technical', 'seo'] as const
+export const TRANSLATE_FIELDS = ['title', 'description', 'short_description', 'specifications'] as const
+export const DEFAULT_TRANSLATE_FIELDS = [...TRANSLATE_FIELDS]
 
 export type AiMode = (typeof AI_MODES)[number]
 export type AiTone = (typeof AI_TONES)[number]
+export type TranslateField = (typeof TRANSLATE_FIELDS)[number]
 export type MetadataValue =
   | string
   | number
@@ -99,13 +102,13 @@ export interface MetadataField {
 export interface ProductContentMutationBody {
   locale?: string | null
   channel?: string
-  title: string | null
-  short_description: string | null
-  description: string | null
+  title?: string | null
+  short_description?: string | null
+  description?: string | null
   bullets_json?: BulletPoint[] | null
   variant_titles_json?: VariantTitle[] | null
   specifications_json?: Specification[] | null
-  seo_json: {
+  seo_json?: {
     title?: string
     description?: string
     keywords: string[]
@@ -155,7 +158,7 @@ export interface PimJob {
   type: 'translate' | 'rewrite' | 'extract_specs' | 'seo' | 'full'
   product_id: string | null
   locale: string | null
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  status: 'running' | 'completed' | 'failed'
   input_json: PimJobInput | null
   result_json: PimGeneratedResult | null
   error_message: string | null
@@ -210,18 +213,11 @@ export const AI_PROVIDER_DEFAULTS = [
     base_url: 'https://api.kilo.ai/api/gateway',
     model: 'kilo-auto/balanced',
   },
-  {
-    value: 'custom',
-    label: 'Custom gateway',
-    base_url: '',
-    model: '',
-  },
 ]
 
 const STATUS_COLORS: Record<string, 'green' | 'blue' | 'orange' | 'grey' | 'red'> = {
   published: 'green',
   reviewed: 'blue',
-  ai_generated: 'orange',
   draft: 'grey',
   archived: 'red',
 }

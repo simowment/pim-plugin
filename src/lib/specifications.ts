@@ -15,8 +15,8 @@ export interface StorefrontMetadataField {
   visible_in_storefront?: boolean
 }
 
-export const PIM_ACTIVE_STATUSES = ['draft', 'ai_generated', 'reviewed', 'published'] as const
-export const PIM_MUTABLE_STATUSES = ['draft', 'ai_generated', 'reviewed'] as const
+export const PIM_ACTIVE_STATUSES = ['draft', 'reviewed', 'published'] as const
+export const PIM_MUTABLE_STATUSES = ['draft', 'reviewed'] as const
 const STOREFRONT_METADATA_GROUP = 'pim'
 
 interface ProductSource {

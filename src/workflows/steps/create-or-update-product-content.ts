@@ -1,10 +1,12 @@
 import { createStep, StepResponse } from '@medusajs/framework/workflows-sdk'
+import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 import { PIM_MUTABLE_STATUSES, resolveBestPimContentRecord } from '../../lib/specifications'
 import { assertCanonicalPimLocale } from '../../lib/locales'
 import { resolveDefaultPimChannel } from '../../lib/channels'
 import { getRecordId, type IdentifiableRecord } from '../../lib/records'
+import { ProductContentFieldsSchema } from '../../lib/product-content-schema'
 import type {
   ProductContentSource,
   ProductContentStatus,
@@ -12,6 +14,17 @@ import type {
 import type { ProductContentVersionActorType } from '../../modules/pim/models/product-content-version'
 
 const DRAFT_STATUS: ProductContentStatus = 'draft'
+const JSON_CONTENT_FIELD_KEYS = [
+  'title',
+  'description',
+  'short_description',
+  'variant_titles_json',
+  'bullets_json',
+  'specifications_json',
+  'seo_json',
+  'custom_metadata_json',
+  'raw_source_json',
+] as const
 
 export interface CreateOrUpdateContentInput {
   product_id: string
@@ -43,6 +56,26 @@ type ProductContentRecord = IdentifiableRecord & {
   custom_metadata_json?: Record<string, unknown> | null
 }
 
+type ProductContentPersistenceData = Partial<{
+  title: string | null
+  description: string | null
+  short_description: string | null
+  variant_titles_json: Record<string, unknown> | null
+  bullets_json: Record<string, unknown> | null
+  specifications_json: Record<string, unknown> | null
+  seo_json: Record<string, unknown> | null
+  custom_metadata_json: Record<string, unknown> | null
+  raw_source_json: Record<string, unknown> | null
+}>
+
+type QueryService = {
+  graph: (query: {
+    entity: string
+    fields: string[]
+    filters: Record<string, unknown>
+  }) => Promise<{ data: Array<{ id: string; variants?: Array<{ id: string }> }> }>
+}
+
 export const createOrUpdateProductContentStep = createStep(
   'create-or-update-product-content',
   async (input: CreateOrUpdateContentInput, { container }) => {
@@ -51,6 +84,22 @@ export const createOrUpdateProductContentStep = createStep(
     const defaultChannel = resolveDefaultPimChannel()
     const channel = input.channel ?? defaultChannel
     const locale = assertCanonicalPimLocale(input.locale, 'locale')
+    const parsedContentFields = ProductContentFieldsSchema.parse(pickDefinedContentFields(input))
+    const contentPatch = normalizeContentFields(parsedContentFields)
+
+    const query = container.resolve<QueryService>('query')
+    const { data: products } = await query.graph({
+      entity: 'product',
+      filters: { id: input.product_id },
+      fields: ['id', 'variants.id'],
+    })
+    const product = products[0]
+
+    if (!product) {
+      throw new MedusaError(MedusaError.Types.NOT_FOUND, `Product ${input.product_id} not found`)
+    }
+
+    validateVariantTitleIds(parsedContentFields.variant_titles_json, product.variants ?? [])
 
     // Find the existing mutable draft for this product/locale/channel.
     const [existingRecords] = await pim.listAndCountProductContents(
@@ -71,34 +120,29 @@ export const createOrUpdateProductContentStep = createStep(
       }) as ProductContentRecord | null) ?? null
     const previousSnapshot: Record<string, unknown> | null = existing ? { ...existing } : null
 
-    const contentData = {
+    const baseContentData = {
       product_id: input.product_id,
       locale,
       channel,
-      title: input.title ?? null,
-      description: input.description ?? null,
-      short_description: input.short_description ?? null,
-      variant_titles_json: (input.variant_titles_json ?? null) as unknown as Record<
-        string,
-        unknown
-      > | null,
-      bullets_json: (input.bullets_json ?? null) as unknown as Record<string, unknown> | null,
-      specifications_json: (input.specifications_json ?? null) as unknown as Record<
-        string,
-        unknown
-      > | null,
-      seo_json: input.seo_json ?? null,
-      custom_metadata_json: input.custom_metadata_json ?? null,
-      raw_source_json: (input.raw_source_json ?? null) as unknown as Record<string, unknown> | null,
       source: input.source ?? 'manual',
       updated_by: input.updated_by ?? null,
     }
+    const createContentData = {
+      ...baseContentData,
+      ...nullContentFields(),
+      ...contentPatch,
+    }
+    const updateContentData = {
+      source: input.source ?? 'manual',
+      updated_by: input.updated_by ?? null,
+      ...contentPatch,
+    }
     const contentUpdateData = input.status
       ? {
-          ...contentData,
+          ...updateContentData,
           status: input.status,
         }
-      : contentData
+      : updateContentData
 
     let content: Record<string, unknown>
     let isNew = false
@@ -111,7 +155,7 @@ export const createOrUpdateProductContentStep = createStep(
       content = updated as unknown as Record<string, unknown>
     } else {
       const created = await pim.createProductContents({
-        ...contentData,
+        ...createContentData,
         status: input.status ?? DRAFT_STATUS,
         created_by: input.created_by ?? null,
       })
@@ -140,6 +184,63 @@ export const createOrUpdateProductContentStep = createStep(
     }
   },
 )
+
+function pickDefinedContentFields(input: CreateOrUpdateContentInput) {
+  const entries = JSON_CONTENT_FIELD_KEYS.flatMap((key) =>
+    Object.prototype.hasOwnProperty.call(input, key) && input[key] !== undefined
+      ? [[key, input[key]]]
+      : [],
+  )
+
+  return Object.fromEntries(entries)
+}
+
+function normalizeContentFields(input: ReturnType<typeof ProductContentFieldsSchema.parse>): ProductContentPersistenceData {
+  const output: ProductContentPersistenceData = {}
+
+  if (input.title !== undefined) output.title = input.title
+  if (input.description !== undefined) output.description = input.description
+  if (input.short_description !== undefined) output.short_description = input.short_description
+  if (input.variant_titles_json !== undefined) {
+    output.variant_titles_json = input.variant_titles_json as unknown as Record<string, unknown> | null
+  }
+  if (input.bullets_json !== undefined) {
+    output.bullets_json = input.bullets_json as unknown as Record<string, unknown> | null
+  }
+  if (input.specifications_json !== undefined) {
+    output.specifications_json = input.specifications_json as unknown as Record<string, unknown> | null
+  }
+  if (input.seo_json !== undefined) output.seo_json = input.seo_json
+  if (input.custom_metadata_json !== undefined) output.custom_metadata_json = input.custom_metadata_json
+  if (input.raw_source_json !== undefined) output.raw_source_json = input.raw_source_json
+
+  return output
+}
+
+function nullContentFields() {
+  return Object.fromEntries(JSON_CONTENT_FIELD_KEYS.map((key) => [key, null]))
+}
+
+function validateVariantTitleIds(
+  variantTitles: unknown[] | null | undefined,
+  variants: Array<{ id: string }>,
+) {
+  if (!variantTitles) {
+    return
+  }
+
+  const variantIds = new Set(variants.map((variant) => variant.id))
+  const invalid = variantTitles
+    .map((item) => (typeof item === 'object' && item !== null && 'variant_id' in item ? item.variant_id : null))
+    .filter((variantId): variantId is string => typeof variantId === 'string' && !variantIds.has(variantId))
+
+  if (invalid.length) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Variant titles include IDs that do not belong to this product: ${invalid.join(', ')}`,
+    )
+  }
+}
 
 export const appendContentVersionStep = createStep(
   'append-content-version',

@@ -4,7 +4,7 @@ import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 import type { ProductContentStatus } from '../../modules/pim/models/product-content'
 
-const PUBLISHABLE_STATUSES: ProductContentStatus[] = ['draft', 'ai_generated', 'reviewed']
+const PUBLISHABLE_STATUSES: ProductContentStatus[] = ['draft', 'reviewed']
 const PUBLISHED_STATUS: ProductContentStatus = 'published'
 const ARCHIVED_STATUS: ProductContentStatus = 'archived'
 

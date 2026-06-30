@@ -23,6 +23,8 @@ export interface SyncMetadataInput {
 type MetadataFieldRecord = {
   key: string
   type: ProductMetadataFieldType
+  required?: boolean
+  options_json?: Array<{ value?: unknown }> | null
 }
 
 type ContentMetadataRecord = {
@@ -81,12 +83,6 @@ export const syncProductMetadataStep = createStep<
       )
     }
 
-    for (const field of fieldDefs) {
-      const value = input.metadata[field.key]
-      if (value === undefined) continue
-      validateFieldValue(field.key, field.type, value)
-    }
-
     if (input.scope === 'content') {
       const locale = assertCanonicalPimLocale(input.locale, 'locale')
       const defaultChannel = resolveDefaultPimChannel()
@@ -117,6 +113,7 @@ export const syncProductMetadataStep = createStep<
         ...previousMetadata,
         ...input.metadata,
       }
+      validateMetadata(fieldDefs, merged)
 
       const updated = await pim.updateProductContents({
         id: existing.id,
@@ -150,6 +147,7 @@ export const syncProductMetadataStep = createStep<
       ...previousMetadata,
       ...input.metadata,
     }
+    validateMetadata(fieldDefs, metadata)
 
     await updateProductsWorkflow(container).run({
       input: {
@@ -231,4 +229,47 @@ function validateFieldValue(key: string, type: string, value: unknown): void {
       `Metadata field "${key}" must be an array of strings`,
     )
   }
+}
+
+function validateMetadata(
+  fieldDefs: MetadataFieldRecord[],
+  metadata: Record<string, unknown>,
+): void {
+  for (const field of fieldDefs) {
+    const value = metadata[field.key]
+
+    if (field.required && isEmptyMetadataValue(value)) {
+      throw new MedusaError(MedusaError.Types.INVALID_DATA, `Metadata field "${field.key}" is required`)
+    }
+
+    if (value === undefined) continue
+    validateFieldValue(field.key, field.type, value)
+    validateOptions(field, value)
+  }
+}
+
+function validateOptions(field: MetadataFieldRecord, value: unknown): void {
+  const allowedValues = field.options_json?.map((option) => option.value).filter(Boolean)
+  if (!allowedValues?.length || value === null) {
+    return
+  }
+
+  const values = Array.isArray(value) ? value : [value]
+  const invalid = values.filter((item) => !allowedValues.includes(item))
+
+  if (invalid.length) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Metadata field "${field.key}" contains unsupported option values: ${invalid.join(', ')}`,
+    )
+  }
+}
+
+function isEmptyMetadataValue(value: unknown): boolean {
+  return (
+    value === undefined ||
+    value === null ||
+    value === '' ||
+    (Array.isArray(value) && value.length === 0)
+  )
 }

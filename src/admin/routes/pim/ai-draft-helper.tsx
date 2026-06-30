@@ -1,6 +1,6 @@
 import { Sparkles } from '@medusajs/icons'
-import { Button, Select, Text } from '@medusajs/ui'
-import { isAiMode, isAiTone, type AiMode, type AiTone } from './shared'
+import { Button, Checkbox, Label, Select, Text } from '@medusajs/ui'
+import { TRANSLATE_FIELDS, isAiMode, isAiTone, type AiMode, type AiTone, type TranslateField } from './shared'
 
 interface AiDraftHelperProps {
   mode: AiMode
@@ -8,11 +8,20 @@ interface AiDraftHelperProps {
   sourceLocale: string
   targetLocale: string
   locales: string[]
+  translateFields: TranslateField[]
   isGenerating: boolean
   onModeChange: (value: AiMode) => void
   onToneChange: (value: AiTone) => void
   onSourceLocaleChange: (value: string) => void
+  onTranslateFieldsChange: (value: TranslateField[]) => void
   onGenerate: () => void
+}
+
+const TRANSLATE_FIELD_LABELS: Record<TranslateField, string> = {
+  title: 'Title',
+  description: 'Description',
+  short_description: 'Short description',
+  specifications: 'Specifications',
 }
 
 export function AiDraftHelper({
@@ -21,15 +30,23 @@ export function AiDraftHelper({
   sourceLocale,
   targetLocale,
   locales,
+  translateFields,
   isGenerating,
   onModeChange,
   onToneChange,
   onSourceLocaleChange,
+  onTranslateFieldsChange,
   onGenerate,
 }: AiDraftHelperProps) {
   const sourceLocales = locales.filter((item) => item !== targetLocale)
   const isTranslateMode = mode === 'translate'
   const isSourceLocaleInvalid = isTranslateMode && sourceLocale === targetLocale
+  const hasTranslateFields = !isTranslateMode || translateFields.length > 0
+  const setTranslateField = (field: TranslateField, checked: boolean) => {
+    onTranslateFieldsChange(
+      checked ? [...new Set([...translateFields, field])] : translateFields.filter((item) => item !== field),
+    )
+  }
 
   return (
     <div className="rounded-lg border border-ui-border-base bg-ui-bg-component p-4">
@@ -48,7 +65,7 @@ export function AiDraftHelper({
         <Button
           size="small"
           isLoading={isGenerating}
-          disabled={isGenerating || isSourceLocaleInvalid}
+          disabled={isGenerating || isSourceLocaleInvalid || !hasTranslateFields}
           onClick={onGenerate}
           className="w-full shrink-0 lg:w-auto"
         >
@@ -122,6 +139,24 @@ export function AiDraftHelper({
           </div>
         )}
       </div>
+
+      {isTranslateMode && (
+        <div className="mt-4 space-y-2 rounded-md border border-ui-border-base bg-ui-bg-subtle p-3">
+          <Text size="xsmall" className="text-ui-fg-subtle">Translate fields</Text>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {TRANSLATE_FIELDS.map((field) => (
+              <div key={field} className="flex items-center gap-2">
+                <Checkbox
+                  id={`translate-${field}`}
+                  checked={translateFields.includes(field)}
+                  onCheckedChange={(checked) => setTranslateField(field, Boolean(checked))}
+                />
+                <Label htmlFor={`translate-${field}`}>{TRANSLATE_FIELD_LABELS[field]}</Label>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-2 text-ui-fg-subtle">
         <Text size="small" leading="compact">

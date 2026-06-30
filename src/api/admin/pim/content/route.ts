@@ -23,7 +23,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   if (status) {
     filters.status = status
   } else {
-    filters.status = ['draft', 'ai_generated', 'reviewed', 'published']
+    filters.status = ['draft', 'reviewed', 'published']
   }
   if (channel) filters.channel = channel
 

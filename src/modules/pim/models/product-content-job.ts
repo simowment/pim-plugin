@@ -6,7 +6,6 @@ export const PRODUCT_CONTENT_JOB_TYPES = [
   'extract_specs',
   'seo',
   'full',
-  'bulk_import_cleanup',
 ]
 export type ProductContentJobType =
   | 'translate'
@@ -14,17 +13,16 @@ export type ProductContentJobType =
   | 'extract_specs'
   | 'seo'
   | 'full'
-  | 'bulk_import_cleanup'
 
-export const PRODUCT_CONTENT_JOB_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled']
-export type ProductContentJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+export const PRODUCT_CONTENT_JOB_STATUSES = ['running', 'completed', 'failed']
+export type ProductContentJobStatus = 'running' | 'completed' | 'failed'
 
 export const ProductContentJob = model.define('product_content_job', {
   id: model.id().primaryKey(),
   type: model.enum(PRODUCT_CONTENT_JOB_TYPES),
   product_id: model.text().nullable(),
   locale: model.text().nullable(),
-  status: model.enum(PRODUCT_CONTENT_JOB_STATUSES).default('queued'),
+  status: model.enum(PRODUCT_CONTENT_JOB_STATUSES).default('running'),
   input_json: model.json(),
   result_json: model.json().nullable(),
   error_message: model.text().nullable(),

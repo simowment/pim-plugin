@@ -43,11 +43,12 @@ export async function POST(req: MedusaRequest<BatchContentSchema>, res: MedusaRe
   )
 
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
+  const query = req.scope.resolve('query')
   const resultMap = new Map<string, Record<string, unknown>>()
   const productIdFilter =
     product_ids.length === SINGLE_PRODUCT_COUNT ? product_ids[0] : product_ids
 
-  const [contentResult, metadataFields] = await Promise.all([
+  const [contentResult, metadataFields, productResult] = await Promise.all([
     pim.listAndCountProductContents(
       {
         product_id: productIdFilter,
@@ -64,8 +65,30 @@ export async function POST(req: MedusaRequest<BatchContentSchema>, res: MedusaRe
       { visible_in_storefront: true },
       { order: { sort_order: 'ASC' } },
     ),
+    query.graph(
+      {
+        entity: 'product',
+        filters: { id: productIdFilter },
+        fields: [
+          'id',
+          'title',
+          'description',
+          'handle',
+          'metadata',
+          'variants.id',
+          'variants.title',
+        ],
+      },
+      { locale },
+    ),
   ])
   const [records] = contentResult
+  const fallbackProductsById = new Map<string, Record<string, unknown>>()
+  for (const product of productResult.data) {
+    if (isProductFallbackRecord(product)) {
+      fallbackProductsById.set(product.id, product)
+    }
+  }
   const recordsByProductId = new Map<string, Array<Record<string, unknown>>>()
 
   for (const record of records as unknown as Array<Record<string, unknown>>) {
@@ -80,6 +103,10 @@ export async function POST(req: MedusaRequest<BatchContentSchema>, res: MedusaRe
   }
 
   for (const productId of product_ids) {
+    if (!fallbackProductsById.has(productId)) {
+      continue
+    }
+
     const match = resolveBestPimContentRecord(recordsByProductId.get(productId) ?? [], {
       locale,
       channel: effectiveChannel,
@@ -90,38 +117,6 @@ export async function POST(req: MedusaRequest<BatchContentSchema>, res: MedusaRe
 
     if (match) {
       resultMap.set(productId, match)
-    }
-  }
-
-  const unresolvedProductIds = product_ids.filter((id) => !resultMap.has(id))
-  const fallbackProductsById = new Map<string, Record<string, unknown>>()
-  if (unresolvedProductIds.length > 0) {
-    const query = req.scope.resolve('query')
-    const unresolvedProductIdFilter =
-      unresolvedProductIds.length === SINGLE_PRODUCT_COUNT
-        ? unresolvedProductIds[0]
-        : unresolvedProductIds
-    const productResult = await query.graph(
-      {
-        entity: 'product',
-        filters: { id: unresolvedProductIdFilter },
-        fields: [
-          'id',
-          'title',
-          'description',
-          'handle',
-          'metadata',
-          'variants.id',
-          'variants.title',
-        ],
-      },
-      { locale },
-    )
-
-    for (const product of productResult.data) {
-      if (isProductFallbackRecord(product)) {
-        fallbackProductsById.set(product.id, product)
-      }
     }
   }
 

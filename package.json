@@ -2,13 +2,13 @@
   "name": "@medusastore/medusa-plugin-pim",
   "version": "0.0.1",
   "description": "Medusa v2 plugin for lightweight PIM: product content enrichment, localization, specifications, SEO, and metadata",
-  "homepage": "https://github.com/medusastore/medusa-plugin-pim#readme",
+  "homepage": "https://github.com/simowment/pim-plugin#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/medusastore/medusa-plugin-pim.git"
+    "url": "https://github.com/simowment/pim-plugin.git"
   },
   "bugs": {
-    "url": "https://github.com/medusastore/medusa-plugin-pim/issues"
+    "url": "https://github.com/simowment/pim-plugin/issues"
   },
   "main": ".medusa/server/src/index.js",
   "types": ".medusa/server/src/index.d.ts",
@@ -44,6 +44,8 @@
     "build": "medusa plugin:build && tsc && node ./scripts/clean-build.js",
     "dev": "medusa plugin:develop",
     "dev:docker": "node ./scripts/dev-build-watch.mjs",
+    "prepack": "pnpm build",
+    "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run --config vitest.config.ts"
   },
@@ -76,8 +78,7 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
-    "@tanstack/react-query": "5.64.2",
-    "zod": "3.25.76"
+    "@tanstack/react-query": "5.64.2"
   },
   "keywords": [
     "medusa-plugin",

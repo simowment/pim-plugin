@@ -3,9 +3,10 @@ import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 import { resolvePimAiConfigFromContainer } from '../../lib/ai-config'
-import { getErrorMessage, truncateErrorMessage } from '../../lib/error-messages'
+import { getErrorMessage } from '../../lib/error-messages'
 import { getKiloModelOption } from '../../lib/kilo-models'
 import { getRecordId } from '../../lib/records'
+import { ProductContentFieldsSchema } from '../../lib/product-content-schema'
 import type {
   ProductContentJobStatus,
   ProductContentJobType,
@@ -15,15 +16,16 @@ const GENERATION_MODES = ['translate', 'rewrite', 'extract_specs', 'seo', 'full'
 const TONES = ['neutral', 'luxury', 'technical', 'seo'] as const
 const JSON_CONTENT_TYPE = 'application/json'
 const ROLLBACK_FAILURE_MESSAGE = 'Generation workflow rolled back before completion.'
-const AI_PROVIDER_ERROR_PREVIEW_LENGTH = 1000
 const GENERATED_DESCRIPTION_MAX_CHARACTERS = 700
 const GENERATED_SHORT_DESCRIPTION_MAX_CHARACTERS = 180
 const GENERATED_VARIANT_TITLE_LIMIT = 24
-const GENERATED_BULLET_LIMIT = 5
 const GENERATED_SPECIFICATION_LIMIT = 20
 const GENERATED_SEO_KEYWORD_LIMIT = 8
-const NON_JSON_MESSAGE_PREVIEW_LENGTH = 500
 const LENGTH_FINISH_REASON = 'length'
+const AI_CONTENT_LOG_PREVIEW_LIMIT = 500
+const SPECIFICATION_PASS_SIZE = 10
+const DEFAULT_TRANSLATE_FIELDS = ['title', 'description', 'short_description', 'specifications'] as const
+type TranslateField = (typeof DEFAULT_TRANSLATE_FIELDS)[number]
 
 export interface GenerateContentInput {
   product_id: string
@@ -44,9 +46,29 @@ export type AiProviderStepResult =
     }
   | {
       status: 'failed'
+      generated: Record<string, unknown>
+      error_message: string
+    }
+
+type AiPassResult =
+  | {
+      status: 'completed'
+      generated: Record<string, unknown>
+      error_message: null
+    }
+  | {
+      status: 'failed'
       generated: null
       error_message: string
     }
+
+type GenerationProgressStep = {
+  key: string
+  status: 'completed' | 'failed' | 'skipped'
+  generated_keys: string[]
+  error_message: string | null
+  completed_at: string
+}
 
 export interface GenerateContentOutput {
   job_id: string
@@ -109,10 +131,12 @@ export const callAiProviderStep = createStep(
   async (
     input: {
       product_id: string
+      job_id: string
       locale: string
       mode: string
       tone: string
       content_scope: 'full' | 'copy_specs'
+      translate_fields?: TranslateField[]
       existing_content: Record<string, unknown> | null
     },
     { container },
@@ -126,7 +150,7 @@ export const callAiProviderStep = createStep(
     if (!aiConfig.api_key) {
       return new StepResponse<AiProviderStepResult>({
         status: 'failed',
-        generated: null,
+        generated: {},
         error_message:
           'AI provider API key is not configured. Configure the shared AI gateway key or a PIM AI override.',
       })
@@ -136,122 +160,255 @@ export const callAiProviderStep = createStep(
       `[PIM] Calling AI provider for product=${input.product_id} locale=${input.locale} mode=${input.mode}`,
     )
 
-    const existingContent = compactContentForScope(input.existing_content, input.content_scope)
-    const systemPrompt = buildSystemPrompt(input.mode, input.tone, input.locale, input.content_scope)
-    const userPrompt = buildUserPrompt(input.mode, existingContent)
     const modelSupportError = await validateModelSupportsJsonOutput(aiConfig)
     if (modelSupportError) {
       return new StepResponse<AiProviderStepResult>({
         status: 'failed',
-        generated: null,
+        generated: {},
         error_message: modelSupportError,
       })
     }
 
-    const abortController = new AbortController()
-    const timeout = setTimeout(() => abortController.abort(), aiConfig.request_timeout_ms)
-    let response: Response
-    try {
-      response = await fetch(`${aiConfig.base_url}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          ...aiConfig.headers,
-          'Content-Type': JSON_CONTENT_TYPE,
-          Authorization: `Bearer ${aiConfig.api_key}`,
-        },
-        body: JSON.stringify({
-          model: aiConfig.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-          ],
-          response_format: { type: 'json_object' },
-          temperature: aiConfig.temperature,
-          max_tokens: aiConfig.max_tokens,
+    if (input.mode === 'translate') {
+      return new StepResponse<AiProviderStepResult>(
+        await runTranslatePasses({
+          input,
+          aiConfig,
+          pim: container.resolve<PimModuleService>(PIM_MODULE),
+          logger,
         }),
-        signal: abortController.signal,
-      })
-    } catch (error) {
-      const errorMessage = getErrorMessage(error)
-      logger.error(
-        `[PIM] AI provider request failed provider=${aiConfig.provider} base_url=${aiConfig.base_url} model=${aiConfig.model}: ${errorMessage}`,
       )
-      return new StepResponse<AiProviderStepResult>({
-        status: 'failed',
-        generated: null,
-        error_message: `AI provider request failed: ${errorMessage}`,
-      })
-    } finally {
-      clearTimeout(timeout)
     }
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      return new StepResponse<AiProviderStepResult>({
-        status: 'failed',
-        generated: null,
-        error_message: formatAiProviderError(response.status, errorText, aiConfig.model),
-      })
+    const existingContent = compactContentForScope(input.existing_content, input.content_scope, input.mode)
+    const result = await callAiPass({
+      aiConfig,
+      logger,
+      systemPrompt: buildSystemPrompt(input.mode, input.tone, input.locale, input.content_scope),
+      userPrompt: buildUserPrompt(input.mode, existingContent),
+    })
+
+    if (result.status === 'completed') {
+      return new StepResponse<AiProviderStepResult>(result)
     }
 
-    const responseBody = await response.text()
-    let data: AiChatCompletionResponse
-    try {
-      data = JSON.parse(responseBody) as typeof data
-    } catch {
-      logger.error(`[PIM] AI response is not valid JSON: ${responseBody.slice(0, 500)}`)
-      return new StepResponse<AiProviderStepResult>({
-        status: 'failed',
-        generated: null,
-        error_message: 'AI provider returned invalid JSON response',
-      })
-    }
-
-    const raw = normalizeMessageContent(data.choices?.[0]?.message?.content)
-    const finishReason = getFinishReason(data)
-
-    if (finishReason === LENGTH_FINISH_REASON) {
-      logger.error(
-        `[PIM] AI response hit token limit: choices=${data.choices?.length ?? 0} body_preview=${responseBody.slice(0, 300)}`,
-      )
-      return new StepResponse<AiProviderStepResult>({
-        status: 'failed',
-        generated: null,
-        error_message: `AI provider stopped because max_tokens was reached for model "${aiConfig.model}". Increase PIM_AI_MAX_TOKENS, reduce product input size, or choose a model with a larger output limit.`,
-      })
-    }
-
-    if (!raw) {
-      const hasChoices = data.choices && data.choices.length > 0
-      logger.error(
-        `[PIM] AI returned empty content: choices=${data.choices?.length ?? 0} finish_reason=${finishReason} body_preview=${responseBody.slice(0, 300)}`,
-      )
-      return new StepResponse<AiProviderStepResult>({
-        status: 'failed',
-        generated: null,
-        error_message: `AI provider returned empty content (finish_reason=${finishReason}, has_choices=${hasChoices}). Check model "${aiConfig.model}" supports JSON output.`,
-      })
-    }
-
-    const generated = parseGeneratedContent(raw)
-    if (generated) {
-      return new StepResponse<AiProviderStepResult>({
-        status: 'completed',
-        generated,
-        error_message: null,
-      })
-    }
-
-    logger.error(
-      `[PIM] AI returned non-JSON message content model=${aiConfig.model} raw_preview=${raw.slice(0, NON_JSON_MESSAGE_PREVIEW_LENGTH)}`,
-    )
     return new StepResponse<AiProviderStepResult>({
       status: 'failed',
-      generated: null,
-      error_message: `AI provider returned non-JSON message content for model "${aiConfig.model}": ${truncateErrorMessage(raw, NON_JSON_MESSAGE_PREVIEW_LENGTH)}`,
+      generated: {},
+      error_message: result.error_message,
     })
   },
 )
+
+async function callAiPass(input: {
+  aiConfig: Awaited<ReturnType<typeof resolvePimAiConfigFromContainer>>
+  logger: {
+    error: (message: string) => void
+  }
+  systemPrompt: string
+  userPrompt: string
+}): Promise<AiPassResult> {
+  const abortController = new AbortController()
+  const timeout = setTimeout(() => abortController.abort(), input.aiConfig.request_timeout_ms)
+  let response: Response
+
+  try {
+    response = await fetch(`${input.aiConfig.base_url}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        ...input.aiConfig.headers,
+        'Content-Type': JSON_CONTENT_TYPE,
+        Authorization: `Bearer ${input.aiConfig.api_key}`,
+      },
+      body: JSON.stringify({
+        model: input.aiConfig.model,
+        messages: [
+          { role: 'system', content: input.systemPrompt },
+          { role: 'user', content: input.userPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: input.aiConfig.temperature,
+        max_tokens: input.aiConfig.max_tokens,
+      }),
+      signal: abortController.signal,
+    })
+  } catch (error) {
+    const errorMessage = getErrorMessage(error)
+    input.logger.error(
+      `[PIM] AI provider request failed provider=${input.aiConfig.provider} base_url=${input.aiConfig.base_url} model=${input.aiConfig.model}: ${errorMessage}`,
+    )
+    return {
+      status: 'failed',
+      generated: null,
+      error_message: `AI provider request failed: ${errorMessage}`,
+    }
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    return {
+      status: 'failed',
+      generated: null,
+      error_message: formatAiProviderError(response.status, errorText, input.aiConfig.model),
+    }
+  }
+
+  const responseBody = await response.text()
+  let data: AiChatCompletionResponse
+  try {
+    data = JSON.parse(responseBody) as typeof data
+  } catch {
+    input.logger.error(`[PIM] AI response is not valid JSON for model=${input.aiConfig.model}`)
+    return {
+      status: 'failed',
+      generated: null,
+      error_message: 'AI provider returned invalid JSON response',
+    }
+  }
+
+  const finishReason = getFinishReason(data)
+  if (finishReason === LENGTH_FINISH_REASON) {
+    input.logger.error(`[PIM] AI response hit token limit: choices=${data.choices?.length ?? 0}`)
+    return {
+      status: 'failed',
+      generated: null,
+      error_message: `AI provider stopped because max_tokens was reached for model "${input.aiConfig.model}". Increase PIM_AI_MAX_TOKENS, reduce product input size, or choose a model with a larger output limit.`,
+    }
+  }
+
+  const raw = normalizeMessageContent(data.choices?.[0]?.message?.content)
+  if (!raw) {
+    const hasChoices = data.choices && data.choices.length > 0
+    input.logger.error(
+      `[PIM] AI returned empty content: choices=${data.choices?.length ?? 0} finish_reason=${finishReason}`,
+    )
+    return {
+      status: 'failed',
+      generated: null,
+      error_message: `AI provider returned empty content (finish_reason=${finishReason}, has_choices=${hasChoices}). Check model "${input.aiConfig.model}" supports JSON output.`,
+    }
+  }
+
+  const generated = parseGeneratedContent(
+    raw,
+    (message) => input.logger.error(message),
+    input.aiConfig.model,
+  )
+  if (!generated) {
+    input.logger.error(`[PIM] AI returned non-JSON message content model=${input.aiConfig.model}`)
+    return {
+      status: 'failed',
+      generated: null,
+      error_message: `AI provider returned non-JSON message content for model "${input.aiConfig.model}"`,
+    }
+  }
+
+  return { status: 'completed', generated, error_message: null }
+}
+
+async function runTranslatePasses(input: {
+  input: {
+    product_id: string
+    job_id: string
+    locale: string
+    mode: string
+    tone: string
+    content_scope: 'full' | 'copy_specs'
+    translate_fields?: TranslateField[]
+    existing_content: Record<string, unknown> | null
+  }
+  aiConfig: Awaited<ReturnType<typeof resolvePimAiConfigFromContainer>>
+  pim: PimModuleService
+  logger: {
+    error: (message: string) => void
+  }
+}): Promise<AiProviderStepResult> {
+  const source = compactContentForScope(input.input.existing_content, 'copy_specs', 'translate') ?? {}
+  const translateFields = input.input.translate_fields?.length
+    ? input.input.translate_fields
+    : [...DEFAULT_TRANSLATE_FIELDS]
+  const generated: Record<string, unknown> = {}
+  const steps: GenerationProgressStep[] = []
+
+  const copyFields = translateFields.filter((field) => field !== 'specifications')
+  const copyInput = pickTranslateInput(source, copyFields)
+
+  if (copyFields.length) {
+    const copyResult = await callAiPass({
+      aiConfig: input.aiConfig,
+      logger: input.logger,
+      systemPrompt: buildTranslatePassSystemPrompt(input.input.locale, input.input.tone, 'copy', copyFields),
+      userPrompt: `Translate this JSON content:\n${JSON.stringify(copyInput, null, 2)}`,
+    })
+
+    if (copyResult.status === 'failed') {
+      steps.push(progressStep('copy', 'failed', [], copyResult.error_message))
+      await persistGenerationProgress(input.pim, input.input.job_id, generated, steps)
+      return {
+        status: 'failed',
+        generated: withGenerationProgress(generated, steps),
+        error_message: copyResult.error_message,
+      }
+    }
+
+    mergeGeneratedFields(generated, copyResult.generated, copyFields)
+    steps.push(progressStep('copy', 'completed', Object.keys(copyResult.generated), null))
+    await persistGenerationProgress(input.pim, input.input.job_id, generated, steps)
+  } else {
+    steps.push(progressStep('copy', 'skipped', [], null))
+    await persistGenerationProgress(input.pim, input.input.job_id, generated, steps)
+  }
+
+  const specifications = Array.isArray(source.specifications_json) ? source.specifications_json : []
+  if (!translateFields.includes('specifications') || !specifications.length) {
+    steps.push(progressStep('specifications', 'skipped', [], null))
+    await persistGenerationProgress(input.pim, input.input.job_id, generated, steps)
+    return {
+      status: 'completed',
+      generated: withGenerationProgress(generated, steps),
+      error_message: null,
+    }
+  }
+
+  const translatedSpecs: unknown[] = []
+  for (let index = 0; index < specifications.length; index += SPECIFICATION_PASS_SIZE) {
+    const passNumber = Math.floor(index / SPECIFICATION_PASS_SIZE) + 1
+    const chunk = specifications.slice(index, index + SPECIFICATION_PASS_SIZE)
+    const key = `specifications_${passNumber}`
+    const specsResult = await callAiPass({
+      aiConfig: input.aiConfig,
+      logger: input.logger,
+      systemPrompt: buildTranslatePassSystemPrompt(input.input.locale, input.input.tone, 'specifications'),
+      userPrompt: `Translate this JSON content:\n${JSON.stringify({ specifications_json: chunk }, null, 2)}`,
+    })
+
+    if (specsResult.status === 'failed') {
+      steps.push(progressStep(key, 'failed', [], specsResult.error_message))
+      generated.specifications_json = translatedSpecs
+      await persistGenerationProgress(input.pim, input.input.job_id, generated, steps)
+      return {
+        status: 'failed',
+        generated: withGenerationProgress(generated, steps),
+        error_message: specsResult.error_message,
+      }
+    }
+
+    if (Array.isArray(specsResult.generated.specifications_json)) {
+      translatedSpecs.push(...specsResult.generated.specifications_json)
+      generated.specifications_json = translatedSpecs
+    }
+    steps.push(progressStep(key, 'completed', Object.keys(specsResult.generated), null))
+    await persistGenerationProgress(input.pim, input.input.job_id, generated, steps)
+  }
+
+  return {
+    status: 'completed',
+    generated: withGenerationProgress(generated, steps),
+    error_message: null,
+  }
+}
 
 export const throwGenerationFailureStep = createStep(
   'throw-generation-failure',
@@ -312,13 +469,15 @@ function buildSystemPrompt(
     full: 'Generate complete product content: title, description, specifications, and SEO fields.',
   }
 
-  const fieldInstruction = contentScope === 'copy_specs'
-    ? 'Fields may include only: title, description, short_description, bullets_json (array), specifications_json (array of {key,label,value,unit,group}). Do not return variant_titles_json or seo_json.'
-    : 'Fields may include: title, description, short_description, variant_titles_json (array of {variant_id,title}), bullets_json (array), specifications_json (array of {key,label,value,unit,group}), seo_json ({title,description,keywords}).'
+  const fieldInstruction = mode === 'seo'
+    ? 'Fields may include only: seo_json ({title,description,keywords}). Do not return title, description, short_description, variant_titles_json, bullets_json, or specifications_json.'
+    : contentScope === 'copy_specs'
+      ? 'Fields may include only: title, description, short_description, specifications_json (array of {key,label,value,unit,group}). Do not return variant_titles_json, bullets_json, or seo_json.'
+      : 'Fields may include: title, description, short_description, variant_titles_json (array of {variant_id,title}), specifications_json (array of {key,label,value,unit,group}), seo_json ({title,description,keywords}). Do not return bullets_json.'
   const compactInstruction = contentScope === 'copy_specs'
-    ? `Keep the JSON compact: description under ${GENERATED_DESCRIPTION_MAX_CHARACTERS} characters, short_description under ${GENERATED_SHORT_DESCRIPTION_MAX_CHARACTERS} characters, bullets_json up to ${GENERATED_BULLET_LIMIT} items, and specifications_json up to ${GENERATED_SPECIFICATION_LIMIT} customer-relevant items.`
+    ? `Keep the JSON compact: description under ${GENERATED_DESCRIPTION_MAX_CHARACTERS} characters, short_description under ${GENERATED_SHORT_DESCRIPTION_MAX_CHARACTERS} characters, and specifications_json up to ${GENERATED_SPECIFICATION_LIMIT} customer-relevant items.`
     : `Use only variant_id values present in native_product_json.variants.
-Keep the JSON compact: description under ${GENERATED_DESCRIPTION_MAX_CHARACTERS} characters, short_description under ${GENERATED_SHORT_DESCRIPTION_MAX_CHARACTERS} characters, variant_titles_json up to ${GENERATED_VARIANT_TITLE_LIMIT} items, bullets_json up to ${GENERATED_BULLET_LIMIT} items, specifications_json up to ${GENERATED_SPECIFICATION_LIMIT} customer-relevant items, and seo_json.keywords up to ${GENERATED_SEO_KEYWORD_LIMIT} items.
+Keep the JSON compact: description under ${GENERATED_DESCRIPTION_MAX_CHARACTERS} characters, short_description under ${GENERATED_SHORT_DESCRIPTION_MAX_CHARACTERS} characters, variant_titles_json up to ${GENERATED_VARIANT_TITLE_LIMIT} items, specifications_json up to ${GENERATED_SPECIFICATION_LIMIT} customer-relevant items, and seo_json.keywords up to ${GENERATED_SEO_KEYWORD_LIMIT} items.
 If the product has many variants or the answer may exceed the token limit, omit variant_titles_json instead of truncating JSON.`
 
   return `You are a professional e-commerce content writer. ${modeDesc[mode] ?? modeDesc.full}
@@ -330,11 +489,88 @@ ${compactInstruction}
 Return valid JSON only, with no markdown or commentary.`
 }
 
+function buildTranslatePassSystemPrompt(
+  locale: string,
+  tone: string,
+  pass: 'copy' | 'specifications',
+  fields: TranslateField[] = [],
+): string {
+  const passInstruction = pass === 'copy'
+    ? `Return only these translated fields when present in the input: ${fields.join(', ')}. Do not return specifications_json, variant_titles_json, bullets_json, or seo_json.`
+    : 'Return only specifications_json. Keep the same item order. Preserve each specification key, unit, group, brand names, model numbers, and numeric measurements. Translate labels and natural-language values only.'
+
+  return `You are translating product content to ${locale}.
+Tone: ${tone}.
+${passInstruction}
+Return valid JSON only, with no markdown or commentary.`
+}
+
+function pickDefined(input: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined && value !== null),
+  )
+}
+
+function pickTranslateInput(source: Record<string, unknown>, fields: TranslateField[]) {
+  const input = Object.fromEntries(fields.map((field) => [field, source[field]]))
+  return pickDefined({ ...input, native_product_json: source.native_product_json })
+}
+
+function mergeGeneratedFields(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+  keys: readonly string[],
+): void {
+  for (const key of keys) {
+    if (key in source) {
+      target[key] = source[key]
+    }
+  }
+}
+
+function progressStep(
+  key: string,
+  status: GenerationProgressStep['status'],
+  generatedKeys: string[],
+  errorMessage: string | null,
+): GenerationProgressStep {
+  return {
+    key,
+    status,
+    generated_keys: generatedKeys,
+    error_message: errorMessage,
+    completed_at: new Date().toISOString(),
+  }
+}
+
+function withGenerationProgress(
+  generated: Record<string, unknown>,
+  steps: GenerationProgressStep[],
+): Record<string, unknown> {
+  return {
+    ...generated,
+    generation_steps: steps,
+  }
+}
+
+async function persistGenerationProgress(
+  pim: PimModuleService,
+  jobId: string,
+  generated: Record<string, unknown>,
+  steps: GenerationProgressStep[],
+): Promise<void> {
+  await pim.updateProductContentJobs({
+    id: jobId,
+    result_json: withGenerationProgress(generated, steps),
+  })
+}
+
 function compactContentForScope(
   existing: Record<string, unknown> | null,
   contentScope: 'full' | 'copy_specs',
+  mode: string,
 ): Record<string, unknown> | null {
-  if (!existing || contentScope !== 'copy_specs') {
+  if (!existing) {
     return existing
   }
 
@@ -342,11 +578,29 @@ function compactContentForScope(
     ? existing.native_product_json
     : {}
 
+  if (mode === 'seo') {
+    return {
+      title: existing.title ?? nativeProduct.title ?? null,
+      short_description: existing.short_description ?? null,
+      description: existing.description ?? nativeProduct.description ?? null,
+      specifications_json: Array.isArray(existing.specifications_json)
+        ? existing.specifications_json.slice(0, GENERATED_SPECIFICATION_LIMIT)
+        : null,
+      native_product_json: {
+        title: nativeProduct.title ?? null,
+        description: nativeProduct.description ?? null,
+      },
+    }
+  }
+
+  if (contentScope !== 'copy_specs') {
+    return existing
+  }
+
   return {
     title: existing.title ?? nativeProduct.title ?? null,
     short_description: existing.short_description ?? null,
     description: existing.description ?? nativeProduct.description ?? null,
-    bullets_json: existing.bullets_json ?? null,
     specifications_json: existing.specifications_json ?? null,
     native_product_json: {
       title: nativeProduct.title ?? null,
@@ -438,22 +692,43 @@ async function validateModelSupportsJsonOutput(aiConfig: {
   return null
 }
 
-function parseGeneratedContent(raw: string): Record<string, unknown> | null {
+function parseGeneratedContent(
+  raw: string,
+  logError: (message: string) => void,
+  model: string,
+): Record<string, unknown> | null {
   const direct = parseJsonRecord(raw.trim())
   if (direct) {
-    return direct
+    return parseGeneratedRecord(direct, logError, model, raw)
   }
 
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
   if (fenced?.[1]) {
     const parsed = parseJsonRecord(fenced[1].trim())
     if (parsed) {
-      return parsed
+      return parseGeneratedRecord(parsed, logError, model, raw)
     }
   }
 
   const embedded = findFirstJsonObject(raw)
-  return embedded ? parseJsonRecord(embedded) : null
+  const parsed = embedded ? parseJsonRecord(embedded) : null
+  return parsed ? parseGeneratedRecord(parsed, logError, model, raw) : null
+}
+
+function parseGeneratedRecord(
+  value: Record<string, unknown>,
+  logError: (message: string) => void,
+  model: string,
+  raw: string,
+): Record<string, unknown> | null {
+  try {
+    return ProductContentFieldsSchema.parse(value)
+  } catch (error) {
+    logError(
+      `[PIM] AI JSON failed content schema model=${model}: ${getErrorMessage(error)} preview=${raw.slice(0, AI_CONTENT_LOG_PREVIEW_LIMIT)}`,
+    )
+    return null
+  }
 }
 
 function parseJsonRecord(value: string): Record<string, unknown> | null {
@@ -518,9 +793,6 @@ function formatAiProviderError(status: number, body: string, model: string): str
     const parsed = JSON.parse(body) as unknown
     return `AI provider returned ${status} for model "${model}": ${getErrorMessage(parsed)}`
   } catch {
-    return `AI provider returned ${status} for model "${model}": ${truncateErrorMessage(
-      body,
-      AI_PROVIDER_ERROR_PREVIEW_LENGTH,
-    )}`
+    return `AI provider returned ${status} for model "${model}"`
   }
 }

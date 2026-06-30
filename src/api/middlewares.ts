@@ -1,4 +1,5 @@
 import {
+  authenticate,
   defineMiddlewares,
   validateAndTransformBody,
   validateAndTransformQuery,
@@ -10,55 +11,22 @@ import {
   METADATA_FIELD_TYPES,
   METADATA_FIELD_WRITE_POLICIES,
 } from '../lib/metadata-fields'
-import { parseCanonicalPimLocale } from '../lib/locales'
+import { CanonicalLocaleSchema, ProductContentFieldsSchema } from '../lib/product-content-schema'
+import { PRODUCT_CONTENT_STATUSES } from '../modules/pim/models/product-content'
+import {
+  PRODUCT_CONTENT_JOB_STATUSES,
+  PRODUCT_CONTENT_JOB_TYPES,
+} from '../modules/pim/models/product-content-job'
 
 export const BATCH_CONTENT_PRODUCT_LIMIT = 50
-const CANONICAL_LOCALE_ERROR = 'Locale must be a canonical BCP 47 code with a region, for example fr-FR.'
+const NonEmptyChannelSchema = z.string().min(1)
 
 // Body schemas
 
-const BulletSchema = z.object({
-  label: z.string().optional(),
-  text: z.string(),
-})
-
-const SpecSchema = z.object({
-  key: z.string(),
-  label: z.string().optional(),
-  value: z.string(),
-  unit: z.string().optional(),
-  group: z.string().optional(),
-})
-
-const VariantTitleSchema = z.object({
-  variant_id: z.string(),
-  title: z.string(),
-})
-
-const CanonicalLocaleSchema = z.string().transform((value, context) => {
-  const locale = parseCanonicalPimLocale(value)
-  if (!locale) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: CANONICAL_LOCALE_ERROR,
-    })
-    return z.NEVER
-  }
-
-  return locale
-})
-
-export const UpsertContentSchema = z.object({
+export const UpsertContentSchema = ProductContentFieldsSchema.omit({ raw_source_json: true }).extend({
   locale: CanonicalLocaleSchema,
-  channel: z.string().optional(),
-  title: z.string().nullable().optional(),
-  description: z.string().nullable().optional(),
-  short_description: z.string().nullable().optional(),
-  variant_titles_json: z.array(VariantTitleSchema).nullable().optional(),
-  bullets_json: z.array(BulletSchema).nullable().optional(),
-  specifications_json: z.array(SpecSchema).nullable().optional(),
+  channel: NonEmptyChannelSchema.optional(),
   seo_json: z.record(z.string(), z.unknown()).nullable().optional(),
-  custom_metadata_json: z.record(z.string(), z.unknown()).nullable().optional(),
   change_reason: z.string().optional(),
 })
 export interface UpsertContentSchema extends z.infer<typeof UpsertContentSchema> {}
@@ -72,10 +40,11 @@ export interface PublishContentSchema extends z.infer<typeof PublishContentSchem
 export const GenerateContentSchema = z.object({
   source_locale: CanonicalLocaleSchema.optional(),
   target_locale: CanonicalLocaleSchema,
-  channel: z.string().optional(),
+  channel: NonEmptyChannelSchema.optional(),
   mode: z.enum(['translate', 'rewrite', 'extract_specs', 'seo', 'full']),
   tone: z.enum(['neutral', 'luxury', 'technical', 'seo']).optional(),
   content_scope: z.enum(['full', 'copy_specs']).optional(),
+  translate_fields: z.array(z.enum(['title', 'description', 'short_description', 'specifications'])).min(1).optional(),
   save_as: z.enum(['draft', 'job_only']).optional(),
 })
 export interface GenerateContentSchema extends z.infer<typeof GenerateContentSchema> {}
@@ -97,7 +66,7 @@ export type ListPimAiModelsQuery = z.infer<typeof ListPimAiModelsQuerySchema>
 export const UpdateMetadataSchema = z.object({
   scope: z.enum(['product', 'content']),
   locale: CanonicalLocaleSchema.optional(),
-  channel: z.string().optional(),
+  channel: NonEmptyChannelSchema.optional(),
   metadata: z.record(z.string(), z.unknown()),
 })
 export interface UpdateMetadataSchema extends z.infer<typeof UpdateMetadataSchema> {}
@@ -127,7 +96,7 @@ export interface CreateMetadataFieldSchema extends z.infer<typeof CreateMetadata
 export const BatchContentSchema = z.object({
   product_ids: z.array(z.string()).min(1).max(BATCH_CONTENT_PRODUCT_LIMIT),
   locale: CanonicalLocaleSchema.optional(),
-  channel: z.string().optional(),
+  channel: NonEmptyChannelSchema.optional(),
 })
 export interface BatchContentSchema extends z.infer<typeof BatchContentSchema> {}
 
@@ -137,16 +106,16 @@ export const ListContentQuerySchema = createFindParams().merge(
   z.object({
     product_id: z.string().optional(),
     locale: CanonicalLocaleSchema.optional(),
-    status: z.string().optional(),
-    channel: z.string().optional(),
+    status: z.enum(PRODUCT_CONTENT_STATUSES).optional(),
+    channel: NonEmptyChannelSchema.optional(),
   }),
 )
 export type ListContentQuery = z.infer<typeof ListContentQuerySchema>
 
 export const ListJobsQuerySchema = createFindParams().merge(
   z.object({
-    status: z.string().optional(),
-    type: z.string().optional(),
+    status: z.enum(PRODUCT_CONTENT_JOB_STATUSES).optional(),
+    type: z.enum(PRODUCT_CONTENT_JOB_TYPES).optional(),
     product_id: z.string().optional(),
   }),
 )
@@ -154,7 +123,7 @@ export type ListJobsQuery = z.infer<typeof ListJobsQuerySchema>
 
 export const GetContentQuerySchema = z.object({
   locale: CanonicalLocaleSchema.optional(),
-  channel: z.string().optional(),
+  channel: NonEmptyChannelSchema.optional(),
 })
 export interface GetContentQuerySchema extends z.infer<typeof GetContentQuerySchema> {}
 
@@ -162,6 +131,10 @@ export interface GetContentQuerySchema extends z.infer<typeof GetContentQuerySch
 
 export default defineMiddlewares({
   routes: [
+    {
+      matcher: '/admin/pim/*',
+      middlewares: [authenticate('user', ['session', 'bearer', 'api-key'])],
+    },
     // List content
     {
       matcher: '/admin/pim/content',

@@ -21,6 +21,18 @@ type ApproveJobInput = {
   body: ProductContentMutationBody
 }
 
+type ReviewForm = {
+  title: string
+  short_description: string
+  description: string
+  seo_title: string
+  seo_description: string
+  seo_keywords: string
+  bullets_json: BulletPoint[]
+  variant_titles_json: VariantTitle[]
+  specifications_json: Specification[]
+}
+
 const JOBS_PAGE_SIZE = 50
 const JOB_TYPE_LABELS: Record<PimJob['type'], string> = {
   translate: 'Translate copy',
@@ -30,18 +42,16 @@ const JOB_TYPE_LABELS: Record<PimJob['type'], string> = {
   full: 'Full product draft',
 }
 const JOB_STATUS_LABELS: Record<PimJob['status'], string> = {
-  queued: 'Waiting',
   running: 'Running',
   completed: 'Ready to review',
   failed: 'Needs attention',
-  cancelled: 'Cancelled',
 }
 
 export function JobsTab() {
   const queryClient = useQueryClient()
   const [reviewJob, setReviewJob] = useState<PimJob | null>(null)
   const [jobsPage, setJobsPage] = useState(0)
-  const [reviewForm, setReviewForm] = useState({
+  const [reviewForm, setReviewForm] = useState<ReviewForm>({
     title: '',
     short_description: '',
     description: '',
@@ -141,30 +151,7 @@ export function JobsTab() {
 
     approveMutation.mutate({
       productId: reviewJob.product_id,
-      body: {
-        locale: reviewJob.locale,
-        channel: reviewChannel,
-        title: reviewForm.title || null,
-        short_description: reviewForm.short_description || null,
-        description: reviewForm.description || null,
-        bullets_json: reviewForm.bullets_json.length ? reviewForm.bullets_json : null,
-        variant_titles_json: reviewForm.variant_titles_json.length
-          ? reviewForm.variant_titles_json
-          : null,
-        specifications_json: reviewForm.specifications_json.length
-          ? reviewForm.specifications_json
-          : null,
-        seo_json: {
-          title: reviewForm.seo_title || undefined,
-          description: reviewForm.seo_description || undefined,
-          keywords: reviewForm.seo_keywords
-            .split(',')
-            .map((k) => k.trim())
-            .filter((keyword) => Boolean(keyword)),
-        },
-        custom_metadata_json: reviewJob.result_json?.custom_metadata_json ?? null,
-        change_reason: 'Saved reviewed AI draft',
-      },
+      body: buildReviewApprovalBody(reviewJob, reviewChannel, reviewForm),
     })
   }
 
@@ -486,4 +473,49 @@ export function JobsTab() {
       )}
     </Container>
   )
+}
+
+function buildReviewApprovalBody(
+  job: PimJob,
+  channel: string,
+  form: ReviewForm,
+): ProductContentMutationBody {
+  const result = job.result_json ?? {}
+  const body: ProductContentMutationBody = {
+    locale: job.locale ?? '',
+    channel,
+    change_reason: 'Saved reviewed AI draft',
+  }
+
+  if ('title' in result || form.title) body.title = form.title || null
+  if ('short_description' in result || form.short_description) {
+    body.short_description = form.short_description || null
+  }
+  if ('description' in result || form.description) body.description = form.description || null
+  if ('bullets_json' in result || form.bullets_json.length) {
+    body.bullets_json = form.bullets_json.length ? form.bullets_json : null
+  }
+  if ('variant_titles_json' in result || form.variant_titles_json.length) {
+    body.variant_titles_json = form.variant_titles_json.length ? form.variant_titles_json : null
+  }
+  if ('specifications_json' in result || form.specifications_json.length) {
+    body.specifications_json = form.specifications_json.length ? form.specifications_json : null
+  }
+
+  const seoKeywords = form.seo_keywords
+    .split(',')
+    .map((keyword) => keyword.trim())
+    .filter((keyword) => Boolean(keyword))
+  if ('seo_json' in result || form.seo_title || form.seo_description || seoKeywords.length) {
+    body.seo_json = {
+      title: form.seo_title || undefined,
+      description: form.seo_description || undefined,
+      keywords: seoKeywords,
+    }
+  }
+  if ('custom_metadata_json' in result) {
+    body.custom_metadata_json = result.custom_metadata_json ?? null
+  }
+
+  return body
 }

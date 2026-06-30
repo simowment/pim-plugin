@@ -14,6 +14,7 @@ import {
 import {
   createOrUpdateProductContentStep,
   appendContentVersionStep,
+  type CreateOrUpdateContentInput,
 } from './steps/create-or-update-product-content'
 import { hasUsableSpecifications } from '../lib/specifications'
 import { getRecordId } from '../lib/records'
@@ -28,6 +29,7 @@ export interface GenerateProductContentInput {
   tone?: 'neutral' | 'luxury' | 'technical' | 'seo'
   content_scope?: 'full' | 'copy_specs'
   save_as?: 'draft' | 'job_only'
+  translate_fields?: Array<'title' | 'description' | 'short_description' | 'specifications'>
   created_by?: string | null
   // Existing content to enrich (pre-fetched by route)
   existing_content?: Record<string, unknown> | null
@@ -38,7 +40,6 @@ type GeneratedProductContentFields = {
   description?: string | null
   short_description?: string | null
   variant_titles_json?: unknown[] | null
-  bullets_json?: unknown[] | null
   specifications_json?: unknown[] | null
   seo_json?: Record<string, unknown> | null
 }
@@ -73,6 +74,7 @@ export const generateProductContentWorkflow: ReturnWorkflow<
         mode: input.mode,
         tone: input.tone,
         content_scope: resolveGenerationContentScope(input),
+        translate_fields: input.translate_fields,
       },
       created_by: input.created_by ?? null,
     }))
@@ -81,10 +83,12 @@ export const generateProductContentWorkflow: ReturnWorkflow<
     // 2. Call AI provider
     const aiInput = transform({ job, input }, ({ job, input }) => ({
       product_id: input.product_id,
+      job_id: getRecordId(job, 'PIM generation job'),
       locale: input.target_locale,
       mode: input.mode,
       tone: input.tone ?? 'neutral',
       content_scope: resolveGenerationContentScope(input),
+      translate_fields: input.translate_fields,
       existing_content: input.existing_content ?? null,
     }))
     const aiResult = callAiProviderStep(aiInput)
@@ -111,28 +115,30 @@ export const generateProductContentWorkflow: ReturnWorkflow<
     const contentInput = transform({ generated, input }, ({ generated, input }) => {
       const generatedContent = generated as GeneratedProductContentFields
       const generatedSpecs = generatedContent.specifications_json
-      const existingSpecs = input.existing_content?.specifications_json
-
-      return {
+      const content: CreateOrUpdateContentInput = {
         product_id: input.product_id,
         locale: input.target_locale,
         channel: input.channel ?? resolveDefaultPimChannel(),
-        title: generatedContent.title ?? null,
-        description: generatedContent.description ?? null,
-        short_description: generatedContent.short_description ?? null,
-        variant_titles_json: generatedContent.variant_titles_json ?? null,
-        bullets_json: generatedContent.bullets_json ?? null,
-        specifications_json: hasUsableSpecifications(generatedSpecs)
-          ? generatedSpecs
-          : hasUsableSpecifications(existingSpecs)
-            ? existingSpecs
-            : null,
-        seo_json: generatedContent.seo_json ?? null,
         source: 'ai' as const,
-        status: 'ai_generated' as const,
+        status: 'draft' as const,
         created_by: input.created_by ?? null,
         change_reason: `AI generated (mode=${input.mode})`,
       }
+
+      if ('title' in generatedContent) content.title = generatedContent.title ?? null
+      if ('description' in generatedContent) content.description = generatedContent.description ?? null
+      if ('short_description' in generatedContent) {
+        content.short_description = generatedContent.short_description ?? null
+      }
+      if ('variant_titles_json' in generatedContent) {
+        content.variant_titles_json = generatedContent.variant_titles_json ?? null
+      }
+      if (hasUsableSpecifications(generatedSpecs)) {
+        content.specifications_json = generatedSpecs
+      }
+      if ('seo_json' in generatedContent) content.seo_json = generatedContent.seo_json ?? null
+
+      return content
     })
 
     const savedContent = when(

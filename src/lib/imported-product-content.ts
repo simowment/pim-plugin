@@ -1,8 +1,13 @@
-import { z } from 'zod'
+import { z } from '@medusajs/framework/zod'
 import type { CreateOrUpdateContentInput } from '../workflows/steps/create-or-update-product-content'
 import { normalizeSupplierSpecifications } from './specifications'
-import { parseCanonicalPimLocale } from './locales'
 import { resolveDefaultPimChannel } from './channels'
+import {
+  BulletSchema,
+  CanonicalLocaleSchema,
+  SpecificationSchema,
+  VariantTitleSchema,
+} from './product-content-schema'
 
 export const PIM_PRODUCT_IMPORTED_EVENT = 'pim.product_imported'
 
@@ -10,38 +15,6 @@ const PRODUCT_IMPORTED_EVENT_VERSION = 1
 const PRODUCT_IMPORT_CHANGE_REASON = 'supplier_import'
 const PRODUCT_IMPORT_SOURCE = 'import'
 const DRAFT_STATUS = 'draft'
-const CANONICAL_LOCALE_ERROR = 'Locale must be a canonical BCP 47 code with a region, for example fr-FR.'
-
-const VariantTitleSchema = z.object({
-  variant_id: z.string().min(1),
-  title: z.string(),
-})
-
-const BulletSchema = z.object({
-  label: z.string().optional(),
-  text: z.string(),
-})
-
-const SpecificationSchema = z.object({
-  key: z.string(),
-  label: z.string().optional(),
-  value: z.string(),
-  unit: z.string().optional(),
-  group: z.string().optional(),
-})
-
-const CanonicalLocaleSchema = z.string().transform((value, context) => {
-  const locale = parseCanonicalPimLocale(value)
-  if (!locale) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: CANONICAL_LOCALE_ERROR,
-    })
-    return z.NEVER
-  }
-
-  return locale
-})
 
 export const ImportedProductPayloadSchema = z.object({
   version: z

@@ -22,6 +22,13 @@ export async function POST(
   const sourceLocale = req.validatedBody.source_locale ?? req.validatedBody.target_locale
   const defaultChannel = resolveDefaultPimChannel()
 
+  if (req.validatedBody.mode === 'translate' && sourceLocale === req.validatedBody.target_locale) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      'source_locale and target_locale must differ when mode=translate',
+    )
+  }
+
   // Verify product exists
   const query = req.scope.resolve('query')
   const { data: products } = await query.graph(

@@ -1,9 +1,8 @@
 import { model } from '@medusajs/framework/utils'
 
-export const PRODUCT_CONTENT_STATUSES = ['draft', 'ai_generated', 'reviewed', 'published', 'archived']
+export const PRODUCT_CONTENT_STATUSES = ['draft', 'reviewed', 'published', 'archived']
 export type ProductContentStatus =
   | 'draft'
-  | 'ai_generated'
   | 'reviewed'
   | 'published'
   | 'archived'
@@ -30,7 +29,6 @@ export const ProductContent = model
     seo_json: model.json().nullable(),
     custom_metadata_json: model.json().nullable(),
     raw_source_json: model.json().nullable(),
-    quality_json: model.json().nullable(),
 
     published_at: model.dateTime().nullable(),
     created_by: model.text().nullable(),
