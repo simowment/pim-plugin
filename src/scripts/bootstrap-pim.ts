@@ -2,7 +2,7 @@
  * bootstrap-pim.ts
  *
  * Idempotent script to create default PIM metadata field definitions.
- * Run with: npx medusa exec ./src/scripts/bootstrap-pim.ts
+ * Run with: npx medusa exec ./node_modules/@medusastore/medusa-plugin-pim/.medusa/server/src/scripts/bootstrap-pim.js
  *
  * Safe to run multiple times — skips existing fields.
  */
