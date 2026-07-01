@@ -1,9 +1,15 @@
 import { cloneElement, isValidElement, useId, type ReactNode } from 'react'
+import { Spinner } from '@medusajs/icons'
 import { Badge, Label, Text } from '@medusajs/ui'
 
 export const AI_MODES = ['translate', 'rewrite', 'extract_specs', 'seo', 'full'] as const
 export const AI_TONES = ['neutral', 'luxury', 'technical', 'seo'] as const
-export const TRANSLATE_FIELDS = ['title', 'description', 'short_description', 'specifications'] as const
+export const TRANSLATE_FIELDS = [
+  'title',
+  'description',
+  'short_description',
+  'specifications',
+] as const
 export const DEFAULT_TRANSLATE_FIELDS = [...TRANSLATE_FIELDS]
 
 export type AiMode = (typeof AI_MODES)[number]
@@ -237,9 +243,10 @@ export const emptyForm = {
 }
 
 export const LoadingState = () => (
-  <div className="flex justify-center py-8">
+  <div className="flex items-center justify-center gap-x-2 py-8" role="status" aria-live="polite">
+    <Spinner className="text-ui-fg-subtle animate-spin" aria-hidden="true" />
     <Text size="small" className="text-ui-fg-subtle">
-      Loading...
+      Loading
     </Text>
   </div>
 )
@@ -318,9 +325,10 @@ interface FieldProps {
 export function Field({ label, children, htmlFor }: FieldProps) {
   const generatedId = useId()
   const fieldId = htmlFor ?? generatedId
-  const fieldChildren = isValidElement<{ id?: string }>(children) && children.props.id === undefined
-    ? cloneElement(children, { id: fieldId })
-    : children
+  const fieldChildren =
+    isValidElement<{ id?: string }>(children) && children.props.id === undefined
+      ? cloneElement(children, { id: fieldId })
+      : children
 
   return (
     <div className="flex flex-col gap-y-2">
