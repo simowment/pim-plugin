@@ -13,7 +13,9 @@ import type {
   ProductMetadataFieldType,
   ProductMetadataFieldWritePolicy,
 } from '../modules/pim/models/product-metadata-field'
+import { PIM_MODULE } from '../modules/pim'
 import type PimModuleService from '../modules/pim/service'
+import { bootstrapMetadataFieldWorkflow } from '../workflows/bootstrap-metadata-field'
 
 // All default metadata fields
 const DEFAULT_FIELDS: Array<{
@@ -112,7 +114,7 @@ const DEFAULT_WRITE_POLICY: ProductMetadataFieldWritePolicy = 'admin'
 
 export default async function bootstrapPim({ container }: { container: MedusaContainer }) {
   const logger = container.resolve('logger')
-  const pim = container.resolve<PimModuleService>('pim')
+  const pim = container.resolve<PimModuleService>(PIM_MODULE)
 
   logger.info('[bootstrap-pim] Starting metadata field bootstrap...')
 
@@ -129,20 +131,22 @@ export default async function bootstrapPim({ container }: { container: MedusaCon
       continue
     }
 
-    await pim.createProductMetadataFields({
-      key: field.key,
-      label: field.label,
-      description: field.description ?? null,
-      type: field.type,
-      scope: field.scope,
-      group: field.group,
-      required: false,
-      localized: false,
-      channel_specific: false,
-      visible_in_admin: true,
-      visible_in_storefront: field.visible_in_storefront,
-      write_policy: DEFAULT_WRITE_POLICY,
-      sort_order: field.sort_order,
+    await bootstrapMetadataFieldWorkflow(container).run({
+      input: {
+        key: field.key,
+        label: field.label,
+        description: field.description ?? null,
+        type: field.type,
+        scope: field.scope,
+        group: field.group,
+        required: false,
+        localized: false,
+        channel_specific: false,
+        visible_in_admin: true,
+        visible_in_storefront: field.visible_in_storefront,
+        write_policy: DEFAULT_WRITE_POLICY,
+        sort_order: field.sort_order,
+      },
     })
 
     logger.info(`[bootstrap-pim] Created field: ${field.key}`)
