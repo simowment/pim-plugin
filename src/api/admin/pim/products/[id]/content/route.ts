@@ -1,5 +1,4 @@
 import { AuthenticatedMedusaRequest, MedusaResponse } from '@medusajs/framework/http'
-import { MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../../../../../modules/pim'
 import type PimModuleService from '../../../../../../modules/pim/service'
 import { createOrUpdateProductContentWorkflow } from '../../../../../../workflows/create-or-update-product-content'
@@ -75,17 +74,6 @@ export async function POST(
 ) {
   const { id: product_id } = req.params
   const actor_id = req.auth_context.actor_id
-
-  // Verify the product exists via query
-  const query = req.scope.resolve('query')
-  const { data: products } = await query.graph({
-    entity: 'product',
-    filters: { id: product_id },
-    fields: ['id'],
-  })
-  if (!products.length) {
-    throw new MedusaError(MedusaError.Types.NOT_FOUND, `Product ${product_id} not found`)
-  }
 
   const { result } = await createOrUpdateProductContentWorkflow(req.scope).run({
     input: {
