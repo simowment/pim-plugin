@@ -4,7 +4,7 @@ import { createCipheriv, createDecipheriv, createHash, createSecretKey, randomBy
 import { getErrorMessage } from './error-messages'
 import { PIM_MODULE } from '../modules/pim'
 
-// ── Generic provider contract (matches any OpenAI-compatible gateway) ──────
+// ── Shared provider contract constrained by PIM's supported provider allowlist ──────
 
 /** Minimal contract returned by any shared AI gateway module. */
 interface ProviderConfig {
@@ -246,7 +246,7 @@ function assertKnownProviderBaseUrl(provider: string, baseUrl: string): void {
   if (!allowedProvider) {
     throw new MedusaError(
       MedusaError.Types.INVALID_DATA,
-      `Unsupported PIM AI provider "${provider}". Use openrouter, openai, or kilo.`,
+      `Unsupported PIM AI provider "${provider}". Use openrouter, openai, kilo, or kilocode.`,
     )
   }
 

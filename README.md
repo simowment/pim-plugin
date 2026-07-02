@@ -10,7 +10,7 @@ Medusa v2 plugin for lightweight Product Information Management: localized produ
 - Fields for title, short description, description, bullet points, SEO, variant titles, specifications, and custom metadata.
 - Strict canonical locale contract, for example `en-US`, `fr-FR`, and `es-ES`.
 - Admin PIM page for content editing, AI settings, AI job review, and metadata field management.
-- Optional OpenAI-compatible AI generation through environment config or encrypted admin-managed settings.
+- Optional AI generation with the built-in OpenRouter, OpenAI, or Kilo providers through environment config or encrypted admin-managed settings.
 - Generic supplier import through the `pim.product_imported` event.
 - Version snapshots for create, update, and publish actions.
 - Publishing workflow that archives previous published records for the same product, locale, and channel.
@@ -52,14 +52,14 @@ Admin-managed AI keys require:
 
 Optional values:
 
-- `PIM_AI_PROVIDER` - provider name. Defaults to `openrouter`.
-- `PIM_AI_BASE_URL` - provider base URL. Must match the selected provider's built-in URL.
+- `PIM_AI_PROVIDER` - provider name. Supported values are `openrouter`, `openai`, `kilo`, and `kilocode`. Defaults to `openrouter`.
+- `PIM_AI_BASE_URL` - optional provider base URL. When supplied, it must match the selected built-in provider's URL; third-party gateway URLs are not supported.
 - `PIM_AI_MODEL` - model identifier. Defaults to `openai/gpt-4o-mini`.
 - `PIM_AI_TEMPERATURE` - generation temperature. Defaults to `0.4`.
 - `PIM_AI_MAX_TOKENS` - maximum response tokens. Defaults to `2400`.
 - `PIM_AI_REQUEST_TIMEOUT_MS` - AI request timeout. Defaults to `30000`.
 - `PIM_AI_HEADERS_JSON` - JSON object of extra headers.
-- `PIM_AI_GATEWAY_MODULE` - optional registered Medusa module name for a compatible AI gateway.
+- `PIM_AI_GATEWAY_MODULE` - optional registered Medusa module name that returns one of the supported built-in providers with its matching base URL.
 - `PIM_DEFAULT_CHANNEL` - content channel used when none is supplied. Defaults to `storefront`.
 
 ## Locale Contract
@@ -174,7 +174,7 @@ The plugin adds a `PIM` page to Medusa Admin with these tabs:
 
 - `Product Content` - edit localized content, specifications, metadata, SEO, AI requests, drafts, and publishing.
 - `AI Jobs` - review generated content before saving it to product content.
-- `AI Settings` - configure provider, model, base URL, and encrypted API key storage.
+- `AI Settings` - configure provider, model, resolved built-in base URL, and encrypted API key storage.
 - `Metadata Fields` - create, update, and delete reusable metadata schemas.
 
 ## Content Lifecycle

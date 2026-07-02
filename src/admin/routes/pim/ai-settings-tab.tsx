@@ -82,11 +82,10 @@ export function AiSettingsTab() {
   const saveMutation = useMutation({
     mutationFn: () => {
       const providerDefaults = aiProviderDefaults(form.provider)
-      const requiresCustomBaseUrl = form.provider === 'custom'
       const body: Record<string, string> = {
         provider: form.provider,
         model: form.model.trim() || providerDefaults.model,
-        base_url: requiresCustomBaseUrl ? form.base_url.trim() : providerDefaults.base_url,
+        base_url: providerDefaults.base_url,
       }
       if (form.api_key.trim()) {
         body.api_key = form.api_key.trim()
@@ -113,8 +112,7 @@ export function AiSettingsTab() {
   const settings = settingsQuery.data?.settings
   const canUpdateSettings = Boolean(settings?.can_update)
   const providerDefaults = aiProviderDefaults(form.provider)
-  const requiresCustomBaseUrl = form.provider === 'custom'
-  const effectiveBaseUrl = requiresCustomBaseUrl ? form.base_url : providerDefaults.base_url
+  const effectiveBaseUrl = providerDefaults.base_url
   const shouldShowKiloModels = isKiloProvider(form.provider) && Boolean(effectiveBaseUrl)
   const kiloModelsQuery = useQuery({
     queryKey: ['pim-ai-models', form.provider, effectiveBaseUrl],
@@ -144,8 +142,7 @@ export function AiSettingsTab() {
     canUpdateSettings &&
     !saveMutation.isPending &&
     Boolean(form.provider) &&
-    Boolean(form.model.trim() || providerDefaults.model) &&
-    (!requiresCustomBaseUrl || Boolean(form.base_url.trim()))
+    Boolean(form.model.trim() || providerDefaults.model)
 
   return (
     <Container className="mt-4 overflow-hidden">
@@ -178,7 +175,7 @@ export function AiSettingsTab() {
                         !form.model.trim() || form.model === currentDefaults.model
                           ? nextDefaults.model
                           : form.model,
-                      base_url: value === 'custom' ? form.base_url : nextDefaults.base_url,
+                      base_url: nextDefaults.base_url,
                     })
                     if (!isKiloProvider(value)) {
                       setModelSearch('')
@@ -314,12 +311,10 @@ export function AiSettingsTab() {
               </div>
             )}
 
-            <Field label={requiresCustomBaseUrl ? 'Gateway Base URL' : 'Resolved Base URL'}>
+            <Field label="Resolved Base URL">
               <Input
                 value={effectiveBaseUrl}
-                onChange={(event) => setForm({ ...form, base_url: event.target.value })}
-                placeholder={providerDefaults.base_url || 'https://gateway.example.com/v1'}
-                disabled={!requiresCustomBaseUrl}
+                disabled
               />
             </Field>
 

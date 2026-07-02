@@ -219,6 +219,12 @@ export const AI_PROVIDER_DEFAULTS = [
     base_url: 'https://api.kilo.ai/api/gateway',
     model: 'kilo-auto/balanced',
   },
+  {
+    value: 'kilocode',
+    label: 'Kilo Code (kilocode)',
+    base_url: 'https://api.kilo.ai/api/gateway',
+    model: 'kilo-auto/balanced',
+  },
 ]
 
 const STATUS_COLORS: Record<string, 'green' | 'blue' | 'orange' | 'grey' | 'red'> = {
