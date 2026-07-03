@@ -6,6 +6,7 @@ import {
   when,
 } from '@medusajs/framework/workflows-sdk'
 import {
+  prepareGenerateProductContentStep,
   createJobStep,
   callAiProviderStep,
   finalizeJobStep,
@@ -18,7 +19,6 @@ import {
 } from './steps/create-or-update-product-content'
 import { hasUsableSpecifications } from '../lib/specifications'
 import { getRecordId } from '../lib/records'
-import { resolveDefaultPimChannel } from '../lib/channels'
 
 export interface GenerateProductContentInput {
   product_id: string
@@ -31,8 +31,6 @@ export interface GenerateProductContentInput {
   save_as?: 'draft' | 'job_only'
   translate_fields?: Array<'title' | 'description' | 'short_description' | 'specifications'>
   created_by?: string | null
-  // Existing content to enrich (pre-fetched by route)
-  existing_content?: Record<string, unknown> | null
 }
 
 type GeneratedProductContentFields = {
@@ -63,14 +61,16 @@ export const generateProductContentWorkflow: ReturnWorkflow<
 > = createWorkflow(
   'generate-product-content',
   function (input: GenerateProductContentInput) {
+    const prepared = prepareGenerateProductContentStep(input)
+
     // 1. Create the job record
-    const jobInput = transform({ input }, ({ input }) => ({
+    const jobInput = transform({ input, prepared }, ({ input, prepared }) => ({
       type: input.mode,
       product_id: input.product_id,
       locale: input.target_locale,
       input_json: {
-        source_locale: input.source_locale,
-        channel: input.channel,
+        source_locale: prepared.source_locale,
+        channel: prepared.channel,
         mode: input.mode,
         tone: input.tone,
         content_scope: resolveGenerationContentScope(input),
@@ -81,7 +81,7 @@ export const generateProductContentWorkflow: ReturnWorkflow<
     const job = createJobStep(jobInput)
 
     // 2. Call AI provider
-    const aiInput = transform({ job, input }, ({ job, input }) => ({
+    const aiInput = transform({ job, input, prepared }, ({ job, input, prepared }) => ({
       product_id: input.product_id,
       job_id: getRecordId(job, 'PIM generation job'),
       locale: input.target_locale,
@@ -89,7 +89,7 @@ export const generateProductContentWorkflow: ReturnWorkflow<
       tone: input.tone ?? 'neutral',
       content_scope: resolveGenerationContentScope(input),
       translate_fields: input.translate_fields,
-      existing_content: input.existing_content ?? null,
+      existing_content: prepared.existing_content,
     }))
     const aiResult = callAiProviderStep(aiInput)
     const generated = transform({ aiResult }, ({ aiResult }) => aiResult.generated ?? {})
@@ -112,13 +112,13 @@ export const generateProductContentWorkflow: ReturnWorkflow<
     })
 
     // 4. Save as draft if requested
-    const contentInput = transform({ generated, input }, ({ generated, input }) => {
+    const contentInput = transform({ generated, input, prepared }, ({ generated, input, prepared }) => {
       const generatedContent = generated as GeneratedProductContentFields
       const generatedSpecs = generatedContent.specifications_json
       const content: CreateOrUpdateContentInput = {
         product_id: input.product_id,
         locale: input.target_locale,
-        channel: input.channel ?? resolveDefaultPimChannel(),
+        channel: prepared.channel,
         source: 'ai' as const,
         status: 'draft' as const,
         created_by: input.created_by ?? null,

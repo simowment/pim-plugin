@@ -7,6 +7,12 @@ import { getErrorMessage } from '../../lib/error-messages'
 import { getKiloModelOption } from '../../lib/kilo-models'
 import { getRecordId } from '../../lib/records'
 import { ProductContentFieldsSchema } from '../../lib/product-content-schema'
+import { resolveDefaultPimChannel } from '../../lib/channels'
+import {
+  PIM_ACTIVE_STATUSES,
+  buildPimGenerationSource,
+  resolveBestPimContentRecord,
+} from '../../lib/specifications'
 import type {
   ProductContentJobStatus,
   ProductContentJobType,
@@ -76,6 +82,12 @@ export interface GenerateContentOutput {
   generated: Record<string, unknown>
 }
 
+export type PrepareGenerateProductContentStepResult = {
+  source_locale: string
+  channel: string
+  existing_content: Record<string, unknown>
+}
+
 type AiChatCompletionResponse = {
   choices?: Array<{
     finish_reason?: unknown
@@ -84,6 +96,83 @@ type AiChatCompletionResponse = {
     }
   }>
 }
+
+export const prepareGenerateProductContentStep = createStep(
+  'prepare-generate-product-content',
+  async (
+    input: {
+      product_id: string
+      source_locale?: string
+      target_locale: string
+      channel?: string
+      mode: string
+    },
+    { container },
+  ) => {
+    const sourceLocale = input.source_locale ?? input.target_locale
+
+    if (input.mode === 'translate' && sourceLocale === input.target_locale) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        'source_locale and target_locale must differ when mode=translate',
+      )
+    }
+
+    const query = container.resolve('query')
+    const { data: products } = await query.graph(
+      {
+        entity: 'product',
+        filters: { id: input.product_id },
+        fields: [
+          'id',
+          'title',
+          'description',
+          'metadata',
+          'variants.id',
+          'variants.title',
+          'variants.sku',
+        ],
+      },
+      { locale: sourceLocale },
+    )
+
+    if (!products.length) {
+      throw new MedusaError(
+        MedusaError.Types.NOT_FOUND,
+        `Product ${input.product_id} not found`,
+      )
+    }
+
+    const pim = container.resolve<PimModuleService>(PIM_MODULE)
+    const defaultChannel = resolveDefaultPimChannel()
+    const channel = input.channel ?? defaultChannel
+    const [existingRecords] = await pim.listAndCountProductContents(
+      {
+        product_id: input.product_id,
+        status: [...PIM_ACTIVE_STATUSES],
+      },
+      { take: 100, order: { updated_at: 'DESC' } },
+    )
+
+    const storedContent =
+      resolveBestPimContentRecord(existingRecords as unknown as Array<Record<string, unknown>>, {
+        locale: sourceLocale,
+        channel,
+        defaultChannel,
+        statuses: PIM_ACTIVE_STATUSES,
+        preferSpecifications: true,
+      }) ?? undefined
+
+    return new StepResponse<PrepareGenerateProductContentStepResult>({
+      source_locale: sourceLocale,
+      channel,
+      existing_content: buildPimGenerationSource(
+        products[0] as Record<string, unknown>,
+        storedContent,
+      ),
+    })
+  },
+)
 
 export const createJobStep = createStep(
   'create-content-job',
