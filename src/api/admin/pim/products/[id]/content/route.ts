@@ -3,10 +3,7 @@ import { PIM_MODULE } from '../../../../../../modules/pim'
 import type PimModuleService from '../../../../../../modules/pim/service'
 import { createOrUpdateProductContentWorkflow } from '../../../../../../workflows/create-or-update-product-content'
 import type { UpsertContentSchema } from '../../../../../middlewares'
-import {
-  filterPimContentRecords,
-  normalizeSupplierSpecifications,
-} from '../../../../../../lib/specifications'
+import { normalizeSupplierSpecifications } from '../../../../../../lib/specifications'
 
 type ProductContentQuery = {
   locale?: string
@@ -22,14 +19,12 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const channel = validatedQuery.channel
 
   const filters: Record<string, unknown> = { product_id }
+  if (locale) filters.locale = locale
   if (channel) filters.channel = channel
 
-  const [records] = await pim.listAndCountProductContents(filters, {
+  const [contents] = await pim.listAndCountProductContents(filters, {
     order: { updated_at: 'DESC' },
   })
-  const contents = locale
-    ? filterPimContentRecords(records as unknown as Array<Record<string, unknown>>, { locale })
-    : records
 
   const query = req.scope.resolve('query')
   const productQuery = {

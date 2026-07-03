@@ -11,7 +11,7 @@ import { resolveRequestPimLocale } from '../../../../../lib/locales'
 import { resolveDefaultPimChannel } from '../../../../../lib/channels'
 
 const PUBLISHED_STATUS = 'published'
-const CONTENT_RECORD_LIMIT = 100
+const CONTENT_RECORDS_PER_CHANNEL_LIMIT = 2
 
 type ContentQuery = {
   locale?: string
@@ -25,6 +25,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const locale = resolveRequestPimLocale(req, validatedQuery.locale)
   const defaultChannel = resolveDefaultPimChannel()
   const channel = validatedQuery.channel ?? defaultChannel
+  const candidateChannels = Array.from(new Set([channel, defaultChannel, 'default']))
 
   const pim = req.scope.resolve<PimModuleService>(PIM_MODULE)
 
@@ -50,9 +51,14 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     pim.listAndCountProductContents(
       {
         product_id,
+        locale,
+        channel: candidateChannels,
         status: PUBLISHED_STATUS,
       },
-      { take: CONTENT_RECORD_LIMIT, order: { published_at: 'DESC' } },
+      {
+        take: candidateChannels.length * CONTENT_RECORDS_PER_CHANNEL_LIMIT,
+        order: { published_at: 'DESC' },
+      },
     ),
     pim.listProductMetadataFields(
       { visible_in_storefront: true },
