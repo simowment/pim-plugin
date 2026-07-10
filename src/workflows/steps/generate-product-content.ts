@@ -1,5 +1,5 @@
 import { createStep, StepResponse } from '@medusajs/framework/workflows-sdk'
-import { MedusaError } from '@medusajs/framework/utils'
+import { ContainerRegistrationKeys, MedusaError } from '@medusajs/framework/utils'
 import { PIM_MODULE } from '../../modules/pim'
 import type PimModuleService from '../../modules/pim/service'
 import { resolvePimAiConfigFromContainer } from '../../lib/ai-config'
@@ -97,6 +97,17 @@ type AiChatCompletionResponse = {
   }>
 }
 
+type QueryGraph = {
+  graph: (
+    input: {
+      entity: string
+      filters: Record<string, unknown>
+      fields: string[]
+    },
+    options?: { locale?: string },
+  ) => Promise<{ data: Array<Record<string, unknown>> }>
+}
+
 export const prepareGenerateProductContentStep = createStep(
   'prepare-generate-product-content',
   async (
@@ -118,7 +129,7 @@ export const prepareGenerateProductContentStep = createStep(
       )
     }
 
-    const query = container.resolve('query')
+    const query = container.resolve<QueryGraph>(ContainerRegistrationKeys.QUERY)
     const { data: products } = await query.graph(
       {
         entity: 'product',
