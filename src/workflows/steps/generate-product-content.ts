@@ -21,6 +21,17 @@ import type {
 const GENERATION_MODES = ['translate', 'rewrite', 'extract_specs', 'seo', 'full'] as const
 const TONES = ['neutral', 'luxury', 'technical', 'seo'] as const
 const JSON_CONTENT_TYPE = 'application/json'
+const JSON_OBJECT_RESPONSE_FORMAT = { type: 'json_object' } as const
+const JSON_SCHEMA_RESPONSE_FORMAT = {
+  type: 'json_schema',
+  json_schema: {
+    name: 'pim_product_content',
+    schema: {
+      type: 'object',
+      additionalProperties: true,
+    },
+  },
+} as const
 const ROLLBACK_FAILURE_MESSAGE = 'Generation workflow rolled back before completion.'
 const GENERATED_DESCRIPTION_MAX_CHARACTERS = 700
 const GENERATED_SHORT_DESCRIPTION_MAX_CHARACTERS = 180
@@ -311,6 +322,7 @@ async function callAiPass(input: {
   const abortController = new AbortController()
   const timeout = setTimeout(() => abortController.abort(), input.aiConfig.request_timeout_ms)
   let response: Response
+  let responseBody: string
 
   try {
     response = await fetch(`${input.aiConfig.base_url}/chat/completions`, {
@@ -326,12 +338,16 @@ async function callAiPass(input: {
           { role: 'system', content: input.systemPrompt },
           { role: 'user', content: input.userPrompt },
         ],
-        response_format: { type: 'json_object' },
+        response_format:
+          input.aiConfig.provider === 'openrouter'
+            ? JSON_SCHEMA_RESPONSE_FORMAT
+            : JSON_OBJECT_RESPONSE_FORMAT,
         temperature: input.aiConfig.temperature,
         max_tokens: input.aiConfig.max_tokens,
       }),
       signal: abortController.signal,
     })
+    responseBody = await response.text()
   } catch (error) {
     const errorMessage = getErrorMessage(error)
     input.logger.error(
@@ -347,15 +363,13 @@ async function callAiPass(input: {
   }
 
   if (!response.ok) {
-    const errorText = await response.text()
     return {
       status: 'failed',
       generated: null,
-      error_message: formatAiProviderError(response.status, errorText, input.aiConfig.model),
+      error_message: formatAiProviderError(response.status, responseBody, input.aiConfig.model),
     }
   }
 
-  const responseBody = await response.text()
   let data: AiChatCompletionResponse
   try {
     data = JSON.parse(responseBody) as typeof data

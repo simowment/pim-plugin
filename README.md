@@ -56,8 +56,8 @@ Optional values:
 - `PIM_AI_BASE_URL` - optional provider base URL. When supplied, it must match the selected built-in provider's URL; third-party gateway URLs are not supported.
 - `PIM_AI_MODEL` - model identifier. Defaults to `openai/gpt-4o-mini`.
 - `PIM_AI_TEMPERATURE` - generation temperature. Defaults to `0.4`.
-- `PIM_AI_MAX_TOKENS` - maximum response tokens. Defaults to `2400`.
-- `PIM_AI_REQUEST_TIMEOUT_MS` - AI request timeout. Defaults to `30000`.
+- `PIM_AI_MAX_TOKENS` - maximum response tokens. Defaults to `8192`.
+- `PIM_AI_REQUEST_TIMEOUT_MS` - AI request timeout. Defaults to `120000`.
 - `PIM_AI_HEADERS_JSON` - JSON object of extra headers.
 - `PIM_AI_GATEWAY_MODULE` - optional registered Medusa module name that returns one of the supported built-in providers with its matching base URL.
 - `PIM_DEFAULT_CHANNEL` - content channel used when none is supplied. Defaults to `storefront`.
