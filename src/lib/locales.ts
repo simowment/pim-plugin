@@ -63,7 +63,9 @@ export function resolveRequestPimLocale(
   const localizedRequest = req as LocalizedMedusaRequest
   const headerLocale = firstHeaderValue(req.headers[LOCALE_HEADER])
   return assertCanonicalPimLocale(
-    queryLocale ?? headerLocale ?? localizedRequest.locale,
+    // Blank values count as missing: the JS SDK sends an empty x-medusa-locale
+    // header from server-side clients, which must not shadow the query locale.
+    queryLocale?.trim() || headerLocale?.trim() || localizedRequest.locale,
     'locale',
   )
 }
