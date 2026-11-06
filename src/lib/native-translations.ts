@@ -1,4 +1,4 @@
-import { resolveDefaultPimChannel } from './channels'
+import { resolveTranslationMirrorChannels } from './channels'
 
 export type NativeTranslationInput = {
   reference: string
@@ -36,7 +36,7 @@ export function medusaLocaleName(localeCode: string): string {
 }
 
 export function shouldMirrorNativeTranslations(channel: unknown): boolean {
-  return channel === resolveDefaultPimChannel() || channel === 'default'
+  return typeof channel === 'string' && resolveTranslationMirrorChannels().includes(channel)
 }
 
 export function buildNativeTranslationInputs(

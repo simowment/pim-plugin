@@ -3,6 +3,12 @@ import { MedusaError } from '@medusajs/framework/utils'
 import { createCipheriv, createDecipheriv, createHash, createSecretKey, randomBytes } from 'crypto'
 import { getErrorMessage } from './error-messages'
 import { PIM_MODULE } from '../modules/pim'
+import {
+  readAiEnv,
+  resolveAiGatewayModuleOption,
+  resolveAiKeyEncryptionSecret,
+  resolveAiOptions,
+} from './config'
 
 // ── Shared provider contract constrained by PIM's supported provider allowlist ──────
 
@@ -127,27 +133,43 @@ function parseHeaders(value: string | undefined): Record<string, string> | undef
   return AiHeadersSchema.parse(JSON.parse(value))
 }
 
-function readOptionalEnv(name: string): string | undefined {
-  const value = process.env[name]?.trim()
-  return value ? value : undefined
-}
-
 function normalizeProviderName(provider: unknown): string {
   return typeof provider === 'string' ? provider.trim().toLowerCase() : ''
 }
 
+/** Provider settings: plugin `ai` options first, then PIM_AI_* env vars. */
 function resolveEnvAiConfig(): AiConfigInput {
+  const options = resolveAiOptions()
+  const env = readAiEnv()
   return {
-    provider: readOptionalEnv('PIM_AI_PROVIDER'),
-    api_key: readOptionalEnv('PIM_AI_API_KEY'),
-    base_url: readOptionalEnv('PIM_AI_BASE_URL'),
-    model: readOptionalEnv('PIM_AI_MODEL'),
-    headers: parseHeaders(process.env.PIM_AI_HEADERS_JSON),
+    provider: options.provider ?? env.provider,
+    api_key: options.api_key ?? env.api_key,
+    base_url: options.base_url ?? env.base_url,
+    model: options.model ?? env.model,
+    headers: options.headers ?? parseHeaders(env.headers_json),
   }
 }
 
+/** Generation params: plugin `ai` options first, then PIM_AI_* env vars. */
+function resolveGenerationParams(): Pick<AiConfigInput, 'temperature' | 'max_tokens' | 'request_timeout_ms'> {
+  const options = resolveAiOptions()
+  const env = readAiEnv()
+  return {
+    temperature: options.temperature ?? parseNumber(env.temperature),
+    max_tokens: options.max_tokens ?? parseNumber(env.max_tokens),
+    request_timeout_ms: options.request_timeout_ms ?? parseNumber(env.request_timeout_ms),
+  }
+}
+
+/** Header overrides layered on top of gateway / persisted headers. */
+function resolveHeaderOverrides(): Record<string, string> | undefined {
+  const options = resolveAiOptions()
+  if (options.headers !== undefined) return AiHeadersSchema.parse(options.headers)
+  return parseHeaders(readAiEnv().headers_json)
+}
+
 function resolveEncryptionKey() {
-  const secret = process.env.PIM_AI_KEY_ENCRYPTION_KEY?.trim()
+  const secret = resolveAiKeyEncryptionSecret()
   if (!secret) return null
   return createSecretKey(Uint8Array.from(createHash('sha256').update(secret).digest()))
 }
@@ -157,7 +179,7 @@ function encryptApiKey(apiKey: string): string {
   if (!key) {
     throw new MedusaError(
       MedusaError.Types.INVALID_DATA,
-      'PIM_AI_KEY_ENCRYPTION_KEY is required before storing PIM AI API keys in the database.',
+      'PIM_AI_KEY_ENCRYPTION_KEY is required (or set the ai.key_encryption_key option) before storing PIM AI API keys in the database.',
     )
   }
 
@@ -189,7 +211,7 @@ function decryptApiKey(storedValue?: string | null): string | undefined {
   if (!key) {
     throw new MedusaError(
       MedusaError.Types.INVALID_DATA,
-      'PIM_AI_KEY_ENCRYPTION_KEY is required to read persisted PIM AI settings.',
+      'PIM_AI_KEY_ENCRYPTION_KEY is required (or set the ai.key_encryption_key option) to read persisted PIM AI settings.',
     )
   }
 
@@ -285,50 +307,18 @@ function normalizeAiConfig(input: AiConfigInput): PimAiConfig {
 }
 
 function resolveAiGatewayModuleNames(): string[] {
-  const configuredName = readOptionalEnv('PIM_AI_GATEWAY_MODULE')
+  const configuredName = resolveAiGatewayModuleOption()
   return configuredName ? [configuredName] : []
-}
-
-function findConfiguredOptions(configModule: ConfigModule): Record<string, unknown> {
-  const moduleDeclaration = configModule.modules?.pim
-  const moduleOptions =
-    typeof moduleDeclaration === 'object' &&
-    moduleDeclaration !== null &&
-    'options' in moduleDeclaration
-      ? moduleDeclaration.options
-      : undefined
-  if (typeof moduleOptions === 'object' && moduleOptions !== null) {
-    return moduleOptions as Record<string, unknown>
-  }
-
-  const plugin = configModule.plugins?.find(
-    (entry) =>
-      typeof entry === 'object' &&
-      entry !== null &&
-      'resolve' in entry &&
-      entry.resolve === '@medusastore/medusa-plugin-pim',
-  )
-  if (typeof plugin === 'object' && plugin !== null && 'options' in plugin) {
-    const pluginOptions = plugin.options
-    if (typeof pluginOptions === 'object' && pluginOptions !== null) {
-      return pluginOptions as Record<string, unknown>
-    }
-  }
-  return {}
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
 /**
- * Resolve AI config from static medusa-config module options + env vars.
- * Used at build/config time, not at runtime.
+ * Resolve AI config from plugin options (stored at module init, or read from the
+ * given medusa-config object) with PIM_AI_* env vars as fallback.
  */
 export function resolvePimAiConfig(configModule: ConfigModule): PimAiConfig {
-  const configuredOptions = findConfiguredOptions(configModule)
-  const configuredAi =
-    typeof configuredOptions.ai === 'object' && configuredOptions.ai !== null
-      ? configuredOptions.ai
-      : {}
+  const configuredAi = resolveAiOptions(configModule)
   const envAi = resolveEnvAiConfig()
 
   return normalizeAiConfig({
@@ -336,12 +326,27 @@ export function resolvePimAiConfig(configModule: ConfigModule): PimAiConfig {
     api_key: envAi.api_key,
     base_url: envAi.base_url,
     model: envAi.model,
-    temperature: parseNumber(process.env.PIM_AI_TEMPERATURE),
-    max_tokens: parseNumber(process.env.PIM_AI_MAX_TOKENS),
-    request_timeout_ms: parseNumber(process.env.PIM_AI_REQUEST_TIMEOUT_MS),
+    ...resolveGenerationParams(),
     headers: envAi.headers,
-    ...configuredAi,
+    ...pickAiConfigInput(configuredAi),
   })
+}
+
+function pickAiConfigInput(options: Record<string, unknown>): AiConfigInput {
+  const picked: AiConfigInput = {}
+  for (const key of [
+    'provider',
+    'api_key',
+    'base_url',
+    'model',
+    'temperature',
+    'max_tokens',
+    'request_timeout_ms',
+    'headers',
+  ] as const) {
+    if (options[key] !== undefined) picked[key] = options[key]
+  }
+  return picked
 }
 
 /**
@@ -364,23 +369,21 @@ export async function resolvePimAiConfigFromContainer(container: {
       api_key: decryptApiKey(persistedSettings.encrypted_api_key),
       base_url: persistedSettings.base_url,
       model: persistedSettings.model,
-      temperature: parseNumber(process.env.PIM_AI_TEMPERATURE),
-      max_tokens: parseNumber(process.env.PIM_AI_MAX_TOKENS),
-      request_timeout_ms: parseNumber(process.env.PIM_AI_REQUEST_TIMEOUT_MS),
+      ...resolveGenerationParams(),
       headers: {
         ...AiHeadersSchema.parse(envAi.headers ?? {}),
         ...(persistedSettings.headers_json ?? {}),
-        ...parseHeaders(process.env.PIM_AI_HEADERS_JSON),
+        ...resolveHeaderOverrides(),
       },
     })
   }
 
   const providerConfig = await gateway.getProviderConfig()
 
-  // Gateway headers (e.g. Portkey routing) merged with PIM-specific header overrides
+  // Gateway headers merged with PIM-specific header overrides
   const mergedHeaders = {
     ...providerConfig.headers,
-    ...parseHeaders(process.env.PIM_AI_HEADERS_JSON),
+    ...resolveHeaderOverrides(),
   }
 
   return normalizeAiConfig({
@@ -388,9 +391,7 @@ export async function resolvePimAiConfigFromContainer(container: {
     api_key: providerConfig.api_key,
     base_url: providerConfig.base_url,
     model: providerConfig.model,
-    temperature: parseNumber(process.env.PIM_AI_TEMPERATURE),
-    max_tokens: parseNumber(process.env.PIM_AI_MAX_TOKENS),
-    request_timeout_ms: parseNumber(process.env.PIM_AI_REQUEST_TIMEOUT_MS),
+    ...resolveGenerationParams(),
     headers: mergedHeaders,
   })
 }

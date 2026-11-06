@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Trash } from '@medusajs/icons'
 import { Button, IconButton, Input, Label, Select, Text, Textarea, toast } from '@medusajs/ui'
 import { sdk } from '../../lib/sdk'
@@ -20,6 +20,7 @@ import { ProductListSidebar } from './product-list-sidebar'
 import { SeoFieldsPanel } from './seo-fields-panel'
 import {
   DEFAULT_CHANNELS,
+  DEFAULT_LOCALE,
   DEFAULT_LOCALES,
   DEFAULT_TRANSLATE_FIELDS,
   ErrorState,
@@ -50,7 +51,7 @@ export function ProductsTab() {
   const [search, setSearch] = useState('')
   const [selectedProductId, setSelectedProductId] = useState('')
   const [selectedProductSnapshot, setSelectedProductSnapshot] = useState<AdminProduct | null>(null)
-  const [locale, setLocale] = useState('fr-FR')
+  const [locale, setLocale] = useState(DEFAULT_LOCALE)
   const [form, setForm] = useState(emptyForm)
   const [productPage, setProductPage] = useState(0)
   const [variantTitlePage, setVariantTitlePage] = useState(FIRST_PAGE_INDEX)
@@ -60,7 +61,7 @@ export function ProductsTab() {
   // AI Generation configuration
   const [aiMode, setAiMode] = useState<AiMode>('translate')
   const [aiTone, setAiTone] = useState<AiTone>('neutral')
-  const [aiSourceLocale, setAiSourceLocale] = useState('fr-FR')
+  const [aiSourceLocale, setAiSourceLocale] = useState(DEFAULT_LOCALE)
   const [translateFields, setTranslateFields] = useState<TranslateField[]>(DEFAULT_TRANSLATE_FIELDS)
   const [editorTab, setEditorTab] = useState<ProductEditorTab>('copy')
 
@@ -70,7 +71,28 @@ export function ProductsTab() {
   })
   const defaultChannel = configQuery.data?.config.default_channel ?? DEFAULT_CHANNELS[0]
   const channel = defaultChannel
-  const locales = DEFAULT_LOCALES
+  const configuredLocales = configQuery.data?.config.locales
+  const locales = useMemo(
+    () => (configuredLocales?.length ? configuredLocales : DEFAULT_LOCALES),
+    [configuredLocales],
+  )
+  const configuredDefaultLocale = configQuery.data?.config.default_locale
+  const appliedConfigLocale = useRef(false)
+
+  useEffect(() => {
+    if (appliedConfigLocale.current || !configQuery.data) {
+      return
+    }
+    appliedConfigLocale.current = true
+    const initialLocale =
+      configuredDefaultLocale && locales.includes(configuredDefaultLocale)
+        ? configuredDefaultLocale
+        : locales[0]
+    if (initialLocale) {
+      setLocale(initialLocale)
+      setAiSourceLocale(initialLocale)
+    }
+  }, [configQuery.data, configuredDefaultLocale, locales])
 
   useEffect(() => {
     if (aiMode !== 'translate') {

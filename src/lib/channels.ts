@@ -1,11 +1,20 @@
-const FALLBACK_PIM_CHANNEL = 'storefront'
-const DEFAULT_PIM_CHANNELS = ['storefront', 'default', 'google', 'meta']
+import {
+  GENERIC_PIM_CHANNEL,
+  resolveChannelsOption,
+  resolveDefaultChannelOption,
+  resolveTranslationChannelsOption,
+} from './config'
+
+export { GENERIC_PIM_CHANNEL }
 
 export function resolveDefaultPimChannel(): string {
-  const configuredChannel = process.env.PIM_DEFAULT_CHANNEL?.trim()
-  return configuredChannel || FALLBACK_PIM_CHANNEL
+  return resolveDefaultChannelOption()
 }
 
 export function resolvePimChannels(): string[] {
-  return Array.from(new Set([resolveDefaultPimChannel(), ...DEFAULT_PIM_CHANNELS]))
+  return Array.from(new Set([resolveDefaultPimChannel(), ...resolveChannelsOption()]))
+}
+
+export function resolveTranslationMirrorChannels(): string[] {
+  return resolveTranslationChannelsOption()
 }

@@ -1,102 +1,98 @@
 # Medusa PIM Plugin
 
-Medusa v2 plugin for lightweight Product Information Management: localized product copy, structured specifications, SEO fields, metadata schemas, AI generation jobs, and storefront content delivery.
+Medusa v2 plugin for lightweight Product Information Management: localized product copy, structured specifications, SEO fields, metadata schemas, optional AI generation jobs, and storefront content delivery.
 
-> **Status:** This plugin is a work in progress. It is buggy, vibecoded, and not production-hardened. It is open source under MIT so people can fork it, fix it, simplify it, or build something better from it.
+> **Status:** work in progress, not production-hardened. It is MIT licensed so you can fork it, fix it, simplify it, or build something better from it.
 
-## Features
+## Overview / Features
 
 - Product content per product, locale, and channel.
 - Fields for title, short description, description, bullet points, SEO, variant titles, specifications, and custom metadata.
 - Strict canonical locale contract, for example `en-US`, `fr-FR`, and `es-ES`.
 - Admin PIM page for content editing, AI settings, AI job review, and metadata field management.
-- Optional AI generation with the built-in OpenRouter, OpenAI, or Kilo providers through environment config or encrypted admin-managed settings.
+- Optional AI generation with the built-in OpenRouter, OpenAI, or Kilo providers, configured through plugin options, environment variables, or encrypted admin-managed settings.
 - Generic supplier import through the `pim.product_imported` event.
 - Version snapshots for create, update, and publish actions.
 - Publishing workflow that archives previous published records for the same product, locale, and channel.
 - Storefront routes for single-product and batch published content lookup.
 - Optional mirroring into Medusa's Translation Module when that module is registered.
 
+## Compatibility
+
+- Medusa `2.21.2` (`@medusajs/framework`, `@medusajs/medusa`, `@medusajs/admin-sdk` peer dependencies).
+- Node.js `>=20.19.0`.
+
 ## Installation
 
 ```bash
-pnpm add @medusastore/medusa-plugin-pim
+npm install @medusastore/medusa-plugin-pim
+# or: pnpm add @medusastore/medusa-plugin-pim
 ```
 
 Register the plugin in `medusa-config.ts`:
 
 ```ts
-{
-  resolve: "@medusastore/medusa-plugin-pim",
-  options: {},
-}
+module.exports = defineConfig({
+  // ...
+  plugins: [
+    {
+      resolve: "@medusastore/medusa-plugin-pim",
+      options: {
+        default_channel: "storefront",
+        locales: ["en-US", "de-DE"],
+        default_locale: "en-US",
+        // ai: { provider: "openrouter", api_key: process.env.PIM_AI_API_KEY },
+      },
+    },
+  ],
+})
 ```
 
-Run Medusa migrations after installation:
-
-```bash
-pnpm medusa db:migrate
-```
+All options are optional. Every option falls back to an environment variable (where one exists) and then to the default listed below. If you register the `pim` module yourself under `modules`, pass the same object as that module's `options`.
 
 ## Configuration
 
-The plugin provides its own `pim` module. No extra provider registration is required.
+| Option | Env fallback | Default | Description |
+| --- | --- | --- | --- |
+| `default_channel` | `PIM_DEFAULT_CHANNEL` | `storefront` | Channel used when a request, import or workflow does not name one. |
+| `channels` | - | `["storefront", "default", "google", "meta"]` | Channels offered in the admin UI and searched by the store batch route (the default channel is always included). |
+| `locales` | - | `["en-US", "fr-FR", "es-ES"]` | Locales offered in the admin editor. Must be canonical BCP 47 codes with a region. Does not restrict the API. |
+| `default_locale` | `PIM_DEFAULT_LOCALE` | `en-US` | Locale selected when the admin editor opens. Falls back to the first `locales` entry if not in the list. |
+| `translation_channels` | - | `[default_channel, "default"]` | Channels whose published content is mirrored into the Medusa Translation Module. |
+| `ai.provider` | `PIM_AI_PROVIDER` | `openrouter` | One of `openrouter`, `openai`, `kilo`, `kilocode`. |
+| `ai.api_key` | `PIM_AI_API_KEY` | unset | Provider API key. Without a key (here, in admin settings or from a gateway), AI generation jobs fail with a clear message; nothing else is affected. |
+| `ai.base_url` | `PIM_AI_BASE_URL` | provider's built-in URL | Must equal the selected provider's URL (`https://openrouter.ai/api/v1`, `https://api.openai.com/v1`, `https://api.kilo.ai/api/gateway`). Custom URLs are rejected so keys are never sent to arbitrary hosts. |
+| `ai.model` | `PIM_AI_MODEL` | `openai/gpt-4o-mini` (OpenRouter), `gpt-4o-mini` (OpenAI), `kilo-auto/balanced` (Kilo) | Model identifier. |
+| `ai.temperature` | `PIM_AI_TEMPERATURE` | `0.4` | Generation temperature (0-2). |
+| `ai.max_tokens` | `PIM_AI_MAX_TOKENS` | `8192` | Maximum response tokens. |
+| `ai.request_timeout_ms` | `PIM_AI_REQUEST_TIMEOUT_MS` | `120000` | AI request timeout. |
+| `ai.headers` | `PIM_AI_HEADERS_JSON` (JSON object) | `{}` | Extra headers sent to the provider; layered on top of gateway or admin-saved headers. |
+| `ai.gateway_module` | `PIM_AI_GATEWAY_MODULE` | unset | Name of a registered Medusa module exposing `getProviderConfig()` / `setProviderConfig()`. When set, provider, key, URL and model come from that module (still restricted to the built-in providers). |
+| `ai.key_encryption_key` | `PIM_AI_KEY_ENCRYPTION_KEY` | unset | Secret used to encrypt API keys saved from the admin AI Settings tab (AES-256-GCM). Required only to save or read admin-managed keys. |
 
-AI generation requires an explicit PIM provider key:
+AI provider resolution order at runtime: gateway module (if configured) -> admin-saved settings (if any) -> plugin options -> environment variables -> defaults. Generation parameters (`temperature`, `max_tokens`, `request_timeout_ms`) always come from options / env.
 
-- `PIM_AI_API_KEY`
+See `.env.example` in the repository for the environment variable names.
 
-Admin-managed AI keys require:
+## Database / Migrations
 
-- `PIM_AI_KEY_ENCRYPTION_KEY` - secret used to encrypt stored PIM AI keys at rest.
-
-Optional values:
-
-- `PIM_AI_PROVIDER` - provider name. Supported values are `openrouter`, `openai`, `kilo`, and `kilocode`. Defaults to `openrouter`.
-- `PIM_AI_BASE_URL` - optional provider base URL. When supplied, it must match the selected built-in provider's URL; third-party gateway URLs are not supported.
-- `PIM_AI_MODEL` - model identifier. Defaults to `openai/gpt-4o-mini`.
-- `PIM_AI_TEMPERATURE` - generation temperature. Defaults to `0.4`.
-- `PIM_AI_MAX_TOKENS` - maximum response tokens. Defaults to `8192`.
-- `PIM_AI_REQUEST_TIMEOUT_MS` - AI request timeout. Defaults to `120000`.
-- `PIM_AI_HEADERS_JSON` - JSON object of extra headers.
-- `PIM_AI_GATEWAY_MODULE` - optional registered Medusa module name that returns one of the supported built-in providers with its matching base URL.
-- `PIM_DEFAULT_CHANNEL` - content channel used when none is supplied. Defaults to `storefront`.
-
-## Locale Contract
-
-PIM only accepts canonical BCP 47 locale codes with a region, such as `en-US` or `fr-FR`. Short aliases like `en` and `fr` are rejected at API and import boundaries.
-
-Store routes resolve locale in this order:
-
-1. `locale` query parameter.
-2. `x-medusa-locale` header.
-3. Request locale when provided by Medusa.
-
-The plugin does not silently default missing store locales to English.
-
-## Translation Module
-
-Publishing PIM content for the `storefront` or `default` channel can mirror native fields into Medusa's Translation Module:
-
-- product `title`
-- product `description`
-- product `subtitle`
-- variant `title`
-
-This integration is optional. If the Translation Module is not registered, publishing still succeeds and the native translation mirror is skipped.
-
-## Database
-
-The plugin creates these tables:
+The plugin ships its own `pim` module with these tables:
 
 - `product_content` - localized product content records per locale and channel.
 - `product_content_version` - immutable content snapshots.
 - `product_content_job` - AI generation job tracking.
 - `product_metadata_field` - configurable metadata field definitions.
+- `pim_ai_setting` - admin-managed AI provider settings (API key stored encrypted).
 
-## Bootstrap
+Run migrations after installing or upgrading:
 
-Seed default metadata field definitions:
+```bash
+npx medusa db:migrate
+```
+
+### Bootstrap
+
+Optionally seed a generic set of metadata field definitions (material, style, room, care instructions, supplier source fields, Google product category, compliance warning):
 
 ```bash
 npx medusa exec ./node_modules/@medusastore/medusa-plugin-pim/.medusa/server/src/scripts/bootstrap-pim.js
@@ -104,19 +100,20 @@ npx medusa exec ./node_modules/@medusastore/medusa-plugin-pim/.medusa/server/src
 
 The bootstrap script is idempotent and skips existing fields.
 
-## API Surface
+## API Routes
 
-Admin routes are authenticated.
+Admin routes (`/admin/pim/*`) require an authenticated admin user (session, bearer token or secret API key).
 
 | Method | Path | Description |
 | --- | --- | --- |
+| `GET` | `/admin/pim/config` | Effective channels, default channel, locales and default locale for the admin UI. |
 | `GET` | `/admin/pim/content` | List content records. |
 | `GET` | `/admin/pim/content/:id` | Retrieve one content record. |
 | `DELETE` | `/admin/pim/content/:id` | Delete a content record. |
 | `GET` | `/admin/pim/products/:id/content` | Get product content by locale and channel. |
 | `POST` | `/admin/pim/products/:id/content` | Create or update draft content. |
 | `POST` | `/admin/pim/products/:id/publish` | Publish a content record. |
-| `POST` | `/admin/pim/products/:id/generate` | Trigger AI generation. |
+| `POST` | `/admin/pim/products/:id/generate` | Trigger AI generation (calls the AI provider). |
 | `POST` | `/admin/pim/products/:id/metadata` | Sync validated metadata to a draft. |
 | `GET` | `/admin/pim/metadata-fields` | List metadata field definitions. |
 | `POST` | `/admin/pim/metadata-fields` | Create a metadata field definition. |
@@ -124,58 +121,55 @@ Admin routes are authenticated.
 | `POST` | `/admin/pim/metadata-fields/:id` | Update a metadata field definition. |
 | `DELETE` | `/admin/pim/metadata-fields/:id` | Delete a metadata field definition. |
 | `GET` | `/admin/pim/jobs` | List AI generation jobs. |
-| `GET` | `/admin/pim/ai-settings` | Retrieve effective AI settings. |
+| `GET` | `/admin/pim/ai-settings` | Retrieve effective AI settings (API key masked). |
 | `POST` | `/admin/pim/ai-settings` | Save admin-managed AI settings. |
+| `GET` | `/admin/pim/ai-settings/models` | List available models from the Kilo gateway (Kilo providers only). |
 
-### AI Generation Payload (`POST /admin/pim/products/:id/generate`)
-
-Triggers AI generation/translation/optimization. Payload fields:
-
-- `target_locale` (required, canonical BCP 47 code with region, e.g. `fr-FR`).
-- `source_locale` (optional, defaults to `target_locale`. Must differ from `target_locale` when `mode` is `translate`).
-- `channel` (optional, defaults to `storefront`).
-- `mode` (required, one of `translate`, `rewrite`, `extract_specs`, `seo`, `full`).
-- `tone` (optional, one of `neutral`, `luxury`, `technical`, `seo`).
-- `content_scope` (optional, one of `full`, `copy_specs`).
-- `translate_fields` (optional array of `title`, `description`, `short_description`, `specifications`. Used when `mode` is `translate` to perform selective translations).
-- `save_as` (optional, one of `draft`, `job_only`).
-
-Store routes are public Medusa store routes.
+Store routes are regular Medusa store routes (subject to Medusa's publishable API key requirement).
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/store/products/:id/content` | Get published content for the request locale. |
-| `POST` | `/store/pim/content/batch` | Batch fetch published content for multiple products in the request locale. |
+| `GET` | `/store/products/:id/content` | Published content for the request locale; falls back to the default channel, then `default`. |
+| `POST` | `/store/pim/content/batch` | Published content for up to 50 `product_ids` in the request locale. |
 
-## Import Event
+### AI Generation Payload (`POST /admin/pim/products/:id/generate`)
 
-External connectors should import supplier content by emitting `pim.product_imported`.
-
-The payload should include:
-
-- `product_id`
-- `locale`
-- `channel`
-- `title`
-- `description`
-- `short_description`
-- `bullets_json`
-- `specifications_json`
-- `seo_json`
-- `custom_metadata_json`
-- `supplier_id`
-- `supplier_product_id`
-
-The locale must follow the same canonical BCP 47 contract as the API.
+- `target_locale` (required, canonical BCP 47 code with region, e.g. `fr-FR`).
+- `source_locale` (optional, defaults to `target_locale`; must differ from `target_locale` when `mode` is `translate`).
+- `channel` (optional, defaults to the configured default channel).
+- `mode` (required, one of `translate`, `rewrite`, `extract_specs`, `seo`, `full`).
+- `tone` (optional, one of `neutral`, `luxury`, `technical`, `seo`).
+- `content_scope` (optional, one of `full`, `copy_specs`).
+- `translate_fields` (optional array of `title`, `description`, `short_description`, `specifications`; used with `mode: translate`).
+- `save_as` (optional, one of `draft`, `job_only`).
 
 ## Admin UI
 
-The plugin adds a `PIM` page to Medusa Admin with these tabs:
+The plugin adds a `PIM` route to Medusa Admin with these tabs:
 
 - `Product Content` - edit localized content, specifications, metadata, SEO, AI requests, drafts, and publishing.
 - `AI Jobs` - review generated content before saving it to product content.
 - `AI Settings` - configure provider, model, resolved built-in base URL, and encrypted API key storage.
 - `Metadata Fields` - create, update, and delete reusable metadata schemas.
+
+No admin widgets are injected into core pages.
+
+## Events, Subscribers & Scheduled Jobs
+
+- Subscriber on `pim.product_imported`: creates or updates a draft content record from the event payload. Emit this event from your own supplier connector; nothing is emitted by the plugin itself. Payload fields: `product_id`, `locale`, `channel`, `title`, `description`, `short_description`, `bullets_json`, `specifications_json`, `seo_json`, `custom_metadata_json`, `supplier_id`, `supplier_product_id`. The locale must follow the canonical BCP 47 contract. To disable, simply do not emit the event.
+- No scheduled jobs. AI generation only runs when an admin calls the generate route.
+
+## Storefront Integration
+
+Store routes resolve the locale in this order:
+
+1. `locale` query parameter.
+2. `x-medusa-locale` header (blank values are ignored).
+3. Request locale when provided by Medusa.
+
+Only canonical locales with a region (`en-US`, not `en`) are accepted; the plugin does not silently default missing store locales. Pass `channel` to read channel-specific content; otherwise the default channel is used, with `default` as a fallback.
+
+When the Medusa Translation Module is registered, publishing content for one of the `translation_channels` also mirrors product `title`, `description`, `subtitle` and variant `title` into it, so the native product API can serve translations. If the module is not registered, publishing still succeeds and the mirror is skipped.
 
 ## Content Lifecycle
 
@@ -256,17 +250,20 @@ Overrides variant titles for specific locales. The list must only contain actual
 - `required` enforces that the metadata value is present and non-empty.
 - `options_json` enforces values from a predefined list of allowed options (e.g. `[{"value": "red"}, {"value": "blue"}]`).
 
-## Package Layout
+## Security Notes
 
-Published packages include:
+- All `/admin/pim/*` routes require admin authentication.
+- AI API keys are never returned by the API; only a masked preview is shown.
+- Admin-saved API keys are encrypted at rest with `ai.key_encryption_key` / `PIM_AI_KEY_ENCRYPTION_KEY`. Keep that secret out of source control; rotating it makes stored keys unreadable until they are re-saved.
+- AI base URLs are pinned to the built-in providers to avoid leaking keys to untrusted hosts.
+- Product content sent to the AI provider leaves your infrastructure; review your provider's data policy.
 
-- `.medusa/server`
-- `.env.example`
-- `LICENSE`
-- `README.md`
-- `package.json`
+## Limitations / Status
 
-Source files and development test files are not published in the npm package.
+- Work in progress; APIs and schemas may change.
+- Only OpenRouter, OpenAI and Kilo are supported as AI providers.
+- `locales` only configures the admin editor; the API accepts any canonical locale.
+- Channels are free-form strings; there is no link to Medusa sales channels.
 
 ## Development
 
@@ -276,7 +273,7 @@ pnpm build
 pnpm pack --dry-run
 ```
 
-The build command runs `medusa plugin:build`, TypeScript compilation, and package cleanup.
+The build command runs `medusa plugin:build`, TypeScript compilation, and package cleanup. Published packages include `.medusa/server`, `LICENSE` and `README.md`.
 
 ## License
 

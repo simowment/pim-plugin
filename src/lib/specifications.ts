@@ -1,4 +1,5 @@
 import { canonicalPimLocaleOrEmpty } from './locales'
+import { DEFAULT_PIM_CHANNEL } from './config'
 
 export interface PimSpecification {
   key: string
@@ -165,8 +166,8 @@ export function resolveBestPimContentRecord(
     preferSpecifications?: boolean
   },
 ): ContentRecord | null {
-  const channel = options.channel ?? options.defaultChannel ?? 'storefront'
-  const defaultChannel = options.defaultChannel ?? 'storefront'
+  const channel = options.channel ?? options.defaultChannel ?? DEFAULT_PIM_CHANNEL
+  const defaultChannel = options.defaultChannel ?? DEFAULT_PIM_CHANNEL
   const matches = filterPimContentRecords(records, {
     locale: options.locale,
     statuses: options.statuses,

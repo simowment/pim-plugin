@@ -1,7 +1,7 @@
 {
   "name": "@medusastore/medusa-plugin-pim",
   "version": "0.0.1",
-  "description": "Medusa v2 plugin for lightweight PIM: product content enrichment, localization, specifications, SEO, and metadata",
+  "description": "Medusa v2 plugin for lightweight PIM: localized product content per locale and channel, specifications, SEO, metadata schemas, and optional AI-assisted generation",
   "homepage": "https://github.com/simowment/pim-plugin#readme",
   "repository": {
     "type": "git",
@@ -16,8 +16,18 @@
     "./package.json": "./package.json",
     "./.medusa/server/src/*": "./.medusa/server/src/*.js",
     "./.medusa/server/src/modules/*": "./.medusa/server/src/modules/*/index.js",
-    "./workflows/*": "./.medusa/server/src/workflows/*.js",
-    "./modules/*": "./.medusa/server/src/modules/*/index.js",
+    "./workflows/*": {
+      "types": "./.medusa/server/src/workflows/*.d.ts",
+      "import": "./.medusa/server/src/workflows/*.js",
+      "require": "./.medusa/server/src/workflows/*.js",
+      "default": "./.medusa/server/src/workflows/*.js"
+    },
+    "./modules/*": {
+      "types": "./.medusa/server/src/modules/*/index.d.ts",
+      "import": "./.medusa/server/src/modules/*/index.js",
+      "require": "./.medusa/server/src/modules/*/index.js",
+      "default": "./.medusa/server/src/modules/*/index.js"
+    },
     "./admin": {
       "import": "./.medusa/server/src/admin/index.mjs",
       "require": "./.medusa/server/src/admin/index.js",
@@ -32,7 +42,6 @@
     }
   },
   "files": [
-    ".env.example",
     ".medusa/server",
     "LICENSE",
     "README.md"
@@ -83,9 +92,11 @@
   "keywords": [
     "medusa-plugin",
     "medusa-v2",
+    "medusa",
     "pim",
     "product-information-management",
     "localization",
+    "translation",
     "seo"
   ],
   "license": "MIT",

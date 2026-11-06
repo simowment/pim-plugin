@@ -195,9 +195,13 @@ export interface PimAiModelOption {
 export interface PimAdminConfig {
   default_channel: string
   channels: string[]
+  default_locale?: string
+  locales?: string[]
 }
 
+// Fallbacks used until GET /admin/pim/config responds (server options win).
 export const DEFAULT_LOCALES = ['en-US', 'fr-FR', 'es-ES']
+export const DEFAULT_LOCALE = 'en-US'
 export const DEFAULT_CHANNELS = ['storefront', 'default', 'google', 'meta']
 export const DEFAULT_AI_PROVIDER = 'openrouter'
 export const AI_PROVIDER_DEFAULTS = [
