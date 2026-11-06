@@ -5,6 +5,7 @@ import { sdk } from '../../lib/sdk'
 import {
   AI_PROVIDER_DEFAULTS,
   DEFAULT_AI_PROVIDER,
+  ErrorState,
   Field,
   LoadingState,
   type PimAiModelOption,
@@ -24,9 +25,10 @@ function aiProviderDefaults(provider: string) {
 }
 
 function aiSettingsSourceLabel(source?: PimAiSettings['source']) {
-  if (source === 'gateway') return 'Gateway service'
-  if (source === 'pim_settings') return 'PIM settings'
-  return 'Environment variables'
+  if (source === 'gateway') return 'Shared AI settings (Support tickets)'
+  if (source === 'pim_settings') return 'Saved on this tab'
+  if (source === 'environment') return 'Shop configuration'
+  return 'Not set up'
 }
 
 function isKiloProvider(provider: string) {
@@ -96,7 +98,7 @@ export function AiSettingsTab() {
       })
     },
     onSuccess: (response) => {
-      toast.success('PIM AI settings saved')
+      toast.success('AI settings saved')
       setForm({
         provider: response.settings.provider,
         model: response.settings.model,
@@ -111,6 +113,8 @@ export function AiSettingsTab() {
 
   const settings = settingsQuery.data?.settings
   const canUpdateSettings = Boolean(settings?.can_update)
+  const isShared = settings?.source === 'gateway'
+  const readOnly = !canUpdateSettings
   const providerDefaults = aiProviderDefaults(form.provider)
   const effectiveBaseUrl = providerDefaults.base_url
   const shouldShowKiloModels = isKiloProvider(form.provider) && Boolean(effectiveBaseUrl)
@@ -148,15 +152,28 @@ export function AiSettingsTab() {
     <Container className="mt-4 overflow-hidden">
       <div className="border-b border-ui-border-base px-6 py-4">
         <Text size="small" weight="plus">
-          PIM AI Gateway
+          AI setup
         </Text>
         <Text size="small" leading="compact" className="text-ui-fg-subtle">
-          Configure the LLM gateway used by PIM generation. OpenAI, OpenRouter, and Kilo Code use their default compatible API URLs automatically.
+          The AI service used to draft and translate product content. AI never publishes: every
+          result is a draft you review first.
         </Text>
+        {isShared && (
+          <Text size="small" leading="compact" className="mt-2">
+            These settings are shared with Support tickets and can only be changed there (Support
+            tickets, AI settings). This tab shows them read-only.
+          </Text>
+        )}
       </div>
 
       {settingsQuery.isLoading ? (
         <LoadingState />
+      ) : settingsQuery.isError ? (
+        <ErrorState
+          message={`Could not load the AI settings: ${
+            (settingsQuery.error as Error | null)?.message ?? 'unknown error'
+          }`}
+        />
       ) : (
         <div className="grid grid-cols-1 gap-6 px-6 py-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
           <div className="space-y-4">
@@ -165,6 +182,7 @@ export function AiSettingsTab() {
                 <Select
                   size="small"
                   value={form.provider}
+                  disabled={readOnly}
                   onValueChange={(value) => {
                     const currentDefaults = aiProviderDefaults(form.provider)
                     const nextDefaults = aiProviderDefaults(value)
@@ -197,13 +215,14 @@ export function AiSettingsTab() {
               <Field label="Model">
                 <Input
                   value={form.model}
+                  disabled={readOnly}
                   onChange={(event) => setForm({ ...form, model: event.target.value })}
                   placeholder={providerDefaults.model ? providerDefaults.model : 'openai/gpt-4o-mini'}
                 />
               </Field>
             </div>
 
-            {shouldShowKiloModels && (
+            {shouldShowKiloModels && !readOnly && (
               <div className="rounded-md border border-ui-border-base bg-ui-bg-component">
                 <div className="flex flex-col gap-2 border-b border-ui-border-base px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -311,61 +330,48 @@ export function AiSettingsTab() {
               </div>
             )}
 
-            <Field label="Resolved Base URL">
-              <Input
-                value={effectiveBaseUrl}
-                disabled
-              />
-            </Field>
+            {!readOnly && (
+              <Field label="API key">
+                <Input
+                  type="password"
+                  value={form.api_key}
+                  onChange={(event) => setForm({ ...form, api_key: event.target.value })}
+                  placeholder={
+                    settings?.has_api_key
+                      ? 'Leave blank to keep the saved key'
+                      : 'Paste the provider API key'
+                  }
+                />
+              </Field>
+            )}
+            <Text size="xsmall" className="text-ui-fg-subtle">
+              {settings?.has_api_key
+                ? `A key is saved (${settings.api_key_preview}).`
+                : 'No key saved: AI drafting and translation stay off until a key is added.'}
+            </Text>
 
-            <Field label="API Key">
-              <Input
-                type="password"
-                value={form.api_key}
-                onChange={(event) => setForm({ ...form, api_key: event.target.value })}
-                placeholder="Enter new key or leave blank to keep current"
-              />
-              {settings?.has_api_key && settings.api_key_preview ? (
-                <div className="flex items-center gap-1.5 mt-1.5">
-                  <Badge size="2xsmall" rounded="full" className="bg-ui-tag-green-icon text-ui-tag-green-icon">
-                    OK
-                  </Badge>
-                  <Text size="xsmall" className="text-ui-fg-subtle font-mono">
-                    {settings.api_key_preview}
-                  </Text>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 mt-1.5">
-                  <Badge size="2xsmall" rounded="full" className="bg-ui-tag-red-icon text-ui-tag-red-icon">
-                    No
-                  </Badge>
-                  <Text size="xsmall" className="text-ui-fg-subtle">
-                    No API key saved
-                  </Text>
-                </div>
-              )}
-            </Field>
-
-            <div className="flex justify-end">
-              <Button
-                size="small"
-                isLoading={saveMutation.isPending}
-                disabled={!canSaveSettings}
-                onClick={() => saveMutation.mutate()}
-              >
-                Save AI Settings
-              </Button>
-            </div>
+            {!readOnly && (
+              <div className="flex justify-end">
+                <Button
+                  size="small"
+                  isLoading={saveMutation.isPending}
+                  disabled={!canSaveSettings}
+                  onClick={() => saveMutation.mutate()}
+                >
+                  Save AI settings
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="rounded-lg border border-ui-border-base bg-ui-bg-subtle px-4 py-3 space-y-3">
             <Text size="small" weight="plus">
-              Current gateway
+              In use now
             </Text>
+            <SettingsRow label="Settings from" value={aiSettingsSourceLabel(settings?.source)} />
             <SettingsRow label="Provider" value={settings?.provider} />
-            <SettingsRow label="Source" value={aiSettingsSourceLabel(settings?.source)} />
             <SettingsRow label="Model" value={settings?.model} />
-            <SettingsRow label="Base URL" value={settings?.base_url} />
+            <SettingsRow label="API address" value={settings?.base_url || effectiveBaseUrl} />
             <SettingsRow label="API key" value={settings?.has_api_key ? `Configured ${settings.api_key_preview}` : 'Not configured'} />
             <SettingsRow label="Temperature" value={String(settings?.temperature ?? '')} />
             <SettingsRow label="Max tokens" value={String(settings?.max_tokens ?? '')} />

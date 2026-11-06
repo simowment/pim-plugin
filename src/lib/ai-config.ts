@@ -66,7 +66,19 @@ export interface PimAiSettingsResponse {
   has_api_key: boolean
   api_key_preview: string
   can_update: boolean
-  source: 'gateway' | 'pim_settings' | 'environment'
+  /**
+   * gateway: the shared AI settings module named in `ai.gateway_module` (read-only here);
+   * pim_settings: saved on the AI Setup tab; environment: PIM_AI_* values or plugin options;
+   * defaults: nothing configured.
+   */
+  source: 'gateway' | 'pim_settings' | 'environment' | 'defaults'
+  /**
+   * Set when the configured AI cannot be used by this page (for example the
+   * shared gateway points at a base URL PIM does not allow). AI stays off.
+   */
+  unavailable_reason?: string | null
+  /** Module name of the shared gateway when `source` is `gateway`. */
+  gateway_module?: string | null
 }
 
 export interface PimAiProviderConfigSnapshot extends Partial<ProviderConfig> {
@@ -306,6 +318,11 @@ function normalizeAiConfig(input: AiConfigInput): PimAiConfig {
   })
 }
 
+function hasEnvironmentAiConfig(): boolean {
+  const env = resolveEnvAiConfig()
+  return Boolean(env.api_key || env.provider || env.base_url || env.model)
+}
+
 function resolveAiGatewayModuleNames(): string[] {
   const configuredName = resolveAiGatewayModuleOption()
   return configuredName ? [configuredName] : []
@@ -399,9 +416,16 @@ export async function resolvePimAiConfigFromContainer(container: {
 export async function updatePimAiProviderConfig(
   container: { resolve: <T = unknown>(key: string, options?: Record<string, unknown>) => T },
   config: Partial<ProviderConfig>,
+  options: { allowGatewayWrite?: boolean } = {},
 ): Promise<PimAiSettingsResponse> {
   const gateway = resolveOptionalAiGateway(container)
   if (gateway) {
+    if (!options.allowGatewayWrite) {
+      throw new MedusaError(
+        MedusaError.Types.NOT_ALLOWED,
+        'AI settings are shared with Support tickets and are managed there (Support tickets > AI settings).',
+      )
+    }
     const current = await gateway.getProviderConfig()
     const provider = config.provider ?? current.provider
     const normalized = normalizeAiConfig({
@@ -466,7 +490,16 @@ export async function getPimAiSettings(container: {
 }): Promise<PimAiSettingsResponse> {
   const hasGateway = Boolean(resolveOptionalAiGateway(container))
   const persistedSettings = hasGateway ? null : await resolvePersistedPimAiSettings(container)
-  const config = await resolvePimAiConfigFromContainer(container)
+  let config: PimAiConfig
+  let unavailableReason: string | null = null
+  try {
+    config = await resolvePimAiConfigFromContainer(container)
+  } catch (error) {
+    // A settings read must not fail the page: report AI as off with the reason.
+    if (!(error instanceof MedusaError) || error.type !== MedusaError.Types.INVALID_DATA) throw error
+    unavailableReason = error.message
+    config = { ...resolvePimAiConfig({}), api_key: '' }
+  }
 
   return {
     provider: config.provider,
@@ -475,10 +508,18 @@ export async function getPimAiSettings(container: {
     temperature: config.temperature,
     max_tokens: config.max_tokens,
     request_timeout_ms: config.request_timeout_ms,
-    has_api_key: Boolean(config.api_key),
+    has_api_key: !unavailableReason && Boolean(config.api_key),
     api_key_preview: maskApiKey(config.api_key ?? ''),
-    can_update: true,
-    source: hasGateway ? 'gateway' : persistedSettings ? 'pim_settings' : 'environment',
+    unavailable_reason: unavailableReason,
+    can_update: !hasGateway,
+    source: hasGateway
+      ? 'gateway'
+      : persistedSettings
+        ? 'pim_settings'
+        : hasEnvironmentAiConfig()
+          ? 'environment'
+          : 'defaults',
+    gateway_module: hasGateway ? (resolveAiGatewayModuleOption() ?? null) : null,
   }
 }
 

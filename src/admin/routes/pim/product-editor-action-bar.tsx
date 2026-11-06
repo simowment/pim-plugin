@@ -4,6 +4,10 @@ const CHANGE_REASON_INPUT_ID = 'pim-change-reason'
 
 interface ProductEditorActionBarProps {
   canPublish: boolean | undefined
+  canUnpublish: boolean
+  isDirty: boolean
+  isUnpublishing: boolean
+  onUnpublish: () => void
   changeReason: string
   hasMetadataErrors: boolean
   isPublishing: boolean
@@ -17,6 +21,10 @@ interface ProductEditorActionBarProps {
 
 export function ProductEditorActionBar({
   canPublish,
+  canUnpublish,
+  isDirty,
+  isUnpublishing,
+  onUnpublish,
   changeReason,
   hasMetadataErrors,
   isPublishing,
@@ -43,12 +51,25 @@ export function ProductEditorActionBar({
           />
         </div>
         <div className="grid grid-cols-2 gap-2 lg:flex lg:items-center">
+          {canUnpublish && (
+            <Button
+              size="small"
+              variant="secondary"
+              className="w-full lg:w-auto"
+              isLoading={isUnpublishing}
+              disabled={isUnpublishing}
+              onClick={onUnpublish}
+            >
+              Unpublish {locale.toUpperCase()}
+            </Button>
+          )}
           <Button
             size="small"
             variant="secondary"
             className="w-full lg:w-auto"
             isLoading={isSaving}
-            disabled={!selectedProductId || isSaving || hasMetadataErrors}
+            disabled={!selectedProductId || !isDirty || isSaving || hasMetadataErrors}
+            title={isDirty ? undefined : 'No changes to save'}
             onClick={onSaveDraft}
           >
             Save draft

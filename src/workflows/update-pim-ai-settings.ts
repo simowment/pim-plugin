@@ -30,13 +30,18 @@ export const updatePimAiSettingsStep = createStep(
   async (previousSettings, { container }) => {
     if (!previousSettings) return
 
-    await updatePimAiProviderConfig(container, {
-      provider: previousSettings.provider,
-      api_key: previousSettings.api_key,
-      base_url: previousSettings.base_url,
-      model: previousSettings.model,
-      headers: previousSettings.headers,
-    })
+    // Compensation restores exactly what was there before, including a gateway write.
+    await updatePimAiProviderConfig(
+      container,
+      {
+        provider: previousSettings.provider,
+        api_key: previousSettings.api_key,
+        base_url: previousSettings.base_url,
+        model: previousSettings.model,
+        headers: previousSettings.headers,
+      },
+      { allowGatewayWrite: true },
+    )
   },
 )
 

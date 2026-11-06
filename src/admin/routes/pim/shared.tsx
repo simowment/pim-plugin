@@ -181,7 +181,9 @@ export interface PimAiSettings {
   has_api_key: boolean
   api_key_preview: string
   can_update: boolean
-  source: 'gateway' | 'pim_settings' | 'environment'
+  source: 'gateway' | 'pim_settings' | 'environment' | 'defaults'
+  gateway_module?: string | null
+  unavailable_reason?: string | null
 }
 
 export interface PimAiModelOption {
@@ -235,7 +237,7 @@ const STATUS_COLORS: Record<string, 'green' | 'blue' | 'orange' | 'grey' | 'red'
   published: 'green',
   reviewed: 'blue',
   draft: 'grey',
-  archived: 'red',
+  archived: 'orange',
 }
 
 export const emptyForm = {
@@ -269,14 +271,22 @@ export const ErrorState = ({ message }: { message: string }) => (
   </div>
 )
 
+const STATUS_LABELS: Record<string, string> = {
+  published: 'Published',
+  reviewed: 'Reviewed',
+  draft: 'Draft',
+  archived: 'Unpublished',
+}
+
+/** Badge for a PIM record status. No record means the storefront shows the product's own text. */
 export const statusBadge = (status?: string | null) =>
   status ? (
     <Badge color={STATUS_COLORS[status] ?? 'grey'} size="2xsmall">
-      {status}
+      {STATUS_LABELS[status] ?? status}
     </Badge>
   ) : (
     <Badge color="grey" size="2xsmall">
-      missing
+      Using product defaults
     </Badge>
   )
 

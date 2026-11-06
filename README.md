@@ -67,8 +67,8 @@ All options are optional. Every option falls back to an environment variable (wh
 | `ai.max_tokens` | `PIM_AI_MAX_TOKENS` | `8192` | Maximum response tokens. |
 | `ai.request_timeout_ms` | `PIM_AI_REQUEST_TIMEOUT_MS` | `120000` | AI request timeout. |
 | `ai.headers` | `PIM_AI_HEADERS_JSON` (JSON object) | `{}` | Extra headers sent to the provider; layered on top of gateway or admin-saved headers. |
-| `ai.gateway_module` | `PIM_AI_GATEWAY_MODULE` | unset | Name of a registered Medusa module exposing `getProviderConfig()` / `setProviderConfig()`. When set, provider, key, URL and model come from that module (still restricted to the built-in providers). |
-| `ai.key_encryption_key` | `PIM_AI_KEY_ENCRYPTION_KEY` | unset | Secret used to encrypt API keys saved from the admin AI Settings tab (AES-256-GCM). Required only to save or read admin-managed keys. |
+| `ai.gateway_module` | `PIM_AI_GATEWAY_MODULE` | unset | Name of a registered Medusa module exposing `getProviderConfig()` / `setProviderConfig()` (for example `supportTicketAi`, the Support tickets AI settings). When set, provider, key, URL and model come from that module (still restricted to the built-in providers), the admin AI setup tab is read-only, and `POST /admin/pim/ai-settings` returns 400 `not_allowed`: the settings are changed where the gateway module is managed. |
+| `ai.key_encryption_key` | `PIM_AI_KEY_ENCRYPTION_KEY` | unset | Secret used to encrypt API keys saved from the admin AI setup tab (AES-256-GCM). Required only to save or read admin-managed keys. |
 
 AI provider resolution order at runtime: gateway module (if configured) -> admin-saved settings (if any) -> plugin options -> environment variables -> defaults. Generation parameters (`temperature`, `max_tokens`, `request_timeout_ms`) always come from options / env.
 
@@ -109,11 +109,12 @@ Admin routes (`/admin/pim/*`) require an authenticated admin user (session, bear
 | `GET` | `/admin/pim/config` | Effective channels, default channel, locales and default locale for the admin UI. |
 | `GET` | `/admin/pim/content` | List content records. |
 | `GET` | `/admin/pim/content/:id` | Retrieve one content record. |
-| `DELETE` | `/admin/pim/content/:id` | Delete a content record. |
+| `DELETE` | `/admin/pim/content/:id` | Archive a draft or reviewed record. A published record returns 400 `not_allowed`: unpublish it first. |
+| `POST` | `/admin/pim/content/:id/archive` | Unpublish / archive any record. When it was published, the translations its publish mirrored into the Medusa Translation module are removed (only fields that still hold the published value; rows left empty are deleted). Idempotent. Returns `{ content, was_published, already_archived, removed_translations }`. |
 | `GET` | `/admin/pim/products/:id/content` | Get product content by locale and channel. |
 | `POST` | `/admin/pim/products/:id/content` | Create or update draft content. |
-| `POST` | `/admin/pim/products/:id/publish` | Publish a content record. |
-| `POST` | `/admin/pim/products/:id/generate` | Trigger AI generation (calls the AI provider). |
+| `POST` | `/admin/pim/products/:id/publish` | Publish a draft or reviewed record (anything else returns 400 `not_allowed`). |
+| `POST` | `/admin/pim/products/:id/generate` | Trigger AI generation (calls the AI provider). Without an AI key it calls nothing, records a failed job and returns 400 `invalid_data` ("AI is not set up"). |
 | `POST` | `/admin/pim/products/:id/metadata` | Sync validated metadata to a draft. |
 | `GET` | `/admin/pim/metadata-fields` | List metadata field definitions. |
 | `POST` | `/admin/pim/metadata-fields` | Create a metadata field definition. |
@@ -121,8 +122,8 @@ Admin routes (`/admin/pim/*`) require an authenticated admin user (session, bear
 | `POST` | `/admin/pim/metadata-fields/:id` | Update a metadata field definition. |
 | `DELETE` | `/admin/pim/metadata-fields/:id` | Delete a metadata field definition. |
 | `GET` | `/admin/pim/jobs` | List AI generation jobs. |
-| `GET` | `/admin/pim/ai-settings` | Retrieve effective AI settings (API key masked). |
-| `POST` | `/admin/pim/ai-settings` | Save admin-managed AI settings. |
+| `GET` | `/admin/pim/ai-settings` | Effective AI settings (API key masked): `has_api_key`, `can_update`, `source` (`gateway`, `pim_settings`, `environment` or `defaults` = not set up) and `gateway_module`. |
+| `POST` | `/admin/pim/ai-settings` | Save admin-managed AI settings. Refused (400 `not_allowed`) when `ai.gateway_module` is set. |
 | `GET` | `/admin/pim/ai-settings/models` | List available models from the Kilo gateway (Kilo providers only). |
 
 Store routes are regular Medusa store routes (subject to Medusa's publishable API key requirement).
@@ -145,12 +146,29 @@ Store routes are regular Medusa store routes (subject to Medusa's publishable AP
 
 ## Admin UI
 
-The plugin adds a `PIM` route to Medusa Admin with these tabs:
+The plugin adds **Product content** under **Products** in the Medusa Admin sidebar (`/app/pim`). It holds the
+storefront copy, SEO text and translations of each product, per language. Without a record the storefront uses
+the product's own title and description ("Using product defaults"). Tabs:
 
-- `Product Content` - edit localized content, specifications, metadata, SEO, AI requests, drafts, and publishing.
-- `AI Jobs` - review generated content before saving it to product content.
-- `AI Settings` - configure provider, model, resolved built-in base URL, and encrypted API key storage.
-- `Metadata Fields` - create, update, and delete reusable metadata schemas.
+- `Content` - pick a product and a language, then edit it in four sections:
+  - `Copy`: title, short description (subtitle), description, highlights and variant names. Only the base
+    language (`default_locale`) starts pre-filled from the Medusa product. Other languages start empty, show the
+    base text as a grey placeholder, and offer `Copy from base` and `Translate from <base> with AI`.
+  - `Specifications`: template fields and product facts (the base language starts from the supplier facts).
+  - `SEO`: search-engine title, description and keywords.
+  - `AI`: one-step translation of the base text into the selected languages, and AI drafting (rewrite, find
+    specifications, SEO, everything) for the language being edited. Both are disabled with "AI is not set up"
+    until an AI key exists.
+  - Actions: `Save draft` (only enabled when something changed), `Publish <locale>`, and `Unpublish <locale>` on a
+    published record (calls the archive route, which also removes the mirrored translations).
+  - The language list shows, per language, the status and how many of 7 parts are filled in (title, short
+    description, description, highlights, specifications, SEO title, SEO description).
+- `AI review queue` - every AI result lands here first; open a ready one, edit it, and save it as a draft.
+- `AI setup` - provider, model and encrypted API key. Read-only when `ai.gateway_module` is set (the settings are
+  then shared with, and changed in, the module that owns them, such as Support tickets > AI settings).
+- `Field templates` - reusable product fields (name, type, "different per language" or "same in every language",
+  required). The `visible_in_storefront` flag is kept in the API but hidden in the admin: the shared storefront does
+  not read it.
 
 No admin widgets are injected into core pages.
 
@@ -179,7 +197,13 @@ Content records move through:
 draft -> reviewed -> published -> archived
 ```
 
-Publishing archives previously published content for the same product, locale, and channel.
+Publishing archives previously published content for the same product, locale, and channel. Unpublishing
+(`POST /admin/pim/content/:id/archive`) archives the published record and removes its Translation-module mirror, so
+the storefront falls back to the product's own text. The `reviewed` status is accepted by the API but the admin
+does not set it.
+
+Publishing writes into the same Translation-module rows as Medusa's own translation editor. A later PIM publish of
+the same product and language overwrites native edits of `title`, `description`, `subtitle` and variant `title`.
 
 ## Content JSON Formats
 

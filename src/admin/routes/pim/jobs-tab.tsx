@@ -75,6 +75,22 @@ export function JobsTab() {
       )
     },
   })
+  const jobProductIds = Array.from(
+    new Set((data?.jobs ?? []).map((job) => job.product_id).filter((id): id is string => Boolean(id))),
+  )
+  const jobProductsQuery = useQuery({
+    queryKey: ['pim-job-products', jobProductIds],
+    queryFn: () =>
+      sdk.admin.product.list({
+        id: jobProductIds,
+        limit: jobProductIds.length,
+        fields: 'id,title',
+      } as Record<string, unknown>) as Promise<{ products: Array<{ id: string; title: string }> }>,
+    enabled: jobProductIds.length > 0,
+  })
+  const productTitle = (id: string | null) =>
+    (id && jobProductsQuery.data?.products.find((product) => product.id === id)?.title) || id || '-'
+
   const configQuery = useQuery({
     queryKey: ['pim-admin-config'],
     queryFn: () => sdk.client.fetch<{ config: PimAdminConfig }>('/admin/pim/config'),
@@ -183,26 +199,27 @@ export function JobsTab() {
     <Container className="mt-4">
       <div className="border-b border-ui-border-base px-4 py-3 sm:px-6 sm:py-4">
         <Text size="small" weight="plus">
-          AI Review Queue
+          AI review queue
         </Text>
         <Text size="small" className="text-ui-fg-subtle">
-          Track AI draft requests from Product Content. Review completed drafts here before saving them to a product.
+          Every AI draft and translation lands here first. Open a ready one, edit it, then save it
+          as a draft on the Content tab; publishing is a separate step there.
         </Text>
       </div>
 
       {isLoading ? (
         <LoadingState />
       ) : data === undefined ? (
-        <ErrorState message="Unable to load AI generation jobs." />
+        <ErrorState message="Could not load the AI review queue." />
       ) : (
         <>
           <div className="overflow-x-auto">
             <Table>
               <Table.Header>
                 <Table.Row>
-                  <Table.HeaderCell>Draft ID</Table.HeaderCell>
+                  <Table.HeaderCell>Product</Table.HeaderCell>
                   <Table.HeaderCell>Task</Table.HeaderCell>
-                  <Table.HeaderCell>Locale</Table.HeaderCell>
+                  <Table.HeaderCell>Language</Table.HeaderCell>
                   <Table.HeaderCell>Status</Table.HeaderCell>
                   <Table.HeaderCell>Created</Table.HeaderCell>
                   <Table.HeaderCell className="w-[120px]"></Table.HeaderCell>
@@ -211,7 +228,7 @@ export function JobsTab() {
               <Table.Body>
                 {jobs.map((job) => (
                   <Table.Row key={job.id}>
-                    <Table.Cell className="font-mono text-xs">{job.id}</Table.Cell>
+                    <Table.Cell title={job.id}>{productTitle(job.product_id)}</Table.Cell>
                     <Table.Cell>
                       <Badge color="blue" size="2xsmall">
                         {JOB_TYPE_LABELS[job.type]}
@@ -237,7 +254,7 @@ export function JobsTab() {
                     <Table.Cell>
                       {job.status === 'completed' && job.product_id && (
                         <Button size="small" variant="secondary" onClick={() => handleReviewClick(job)}>
-                          Review Draft
+                          Review
                         </Button>
                       )}
                       {job.status === 'failed' && (
@@ -251,7 +268,7 @@ export function JobsTab() {
                 {!jobs.length && (
                   <Table.Row>
                     <td colSpan={6} className="text-center py-8 text-ui-fg-subtle">
-                      No AI drafts yet. Use Create AI Draft in Product Content when you want help with copy, SEO, translation, or specs.
+                      No AI drafts yet. Use the AI tab of a product on the Content tab to translate or draft text.
                     </td>
                   </Table.Row>
                 )}
@@ -292,15 +309,20 @@ export function JobsTab() {
           <FocusModal.Content>
             <FocusModal.Header>
               <div className="flex w-full flex-col gap-3 pr-10 sm:flex-row sm:items-center sm:justify-between">
-                <Text size="base" weight="plus">
-                  Review AI Draft - {reviewJob.locale?.toUpperCase()}
-                </Text>
+                <FocusModal.Title asChild>
+                  <Text size="base" weight="plus">
+                    Review AI draft - {reviewJob.locale?.toUpperCase()}
+                  </Text>
+                </FocusModal.Title>
+                <FocusModal.Description className="sr-only">
+                  Compare the AI draft with the current product text, edit it, and save it as a draft.
+                </FocusModal.Description>
                 <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
                   <Button size="small" variant="secondary" onClick={() => setReviewJob(null)}>
                     Close
                   </Button>
                   <Button size="small" isLoading={approveMutation.isPending} onClick={handleApprove}>
-                    Save to Product Content
+                    Save as draft
                   </Button>
                 </div>
               </div>
@@ -310,18 +332,18 @@ export function JobsTab() {
                 {/* Left side: Current source content */}
                 <div className="space-y-6 overflow-y-auto bg-ui-bg-subtle p-4 sm:p-8">
                   <Text size="large" weight="plus" className="border-b pb-2">
-                    Current Product Content
+                    Current product text
                   </Text>
                   <div className="space-y-4">
                     <div>
                       <Text size="small" className="text-ui-fg-subtle">
-                        Current Title
+                        Title
                       </Text>
                       <Text className="mt-1 font-semibold">{sourceProductQuery.data?.product?.title}</Text>
                     </div>
                     <div>
                       <Text size="small" className="text-ui-fg-subtle">
-                        Current Description
+                        Description
                       </Text>
                       <Text className="mt-1 whitespace-pre-wrap leading-relaxed">
                         {sourceProductQuery.data?.product?.description || 'No description provided.'}
@@ -376,7 +398,7 @@ export function JobsTab() {
                     </Field>
                     <div className="space-y-3 border-t border-ui-border-base pt-4">
                       <Text size="small" weight="plus">
-                        Generated bullet highlights
+                        Generated highlights
                       </Text>
                       {reviewForm.bullets_json.map((bullet, index) => (
                         <Input
@@ -402,11 +424,13 @@ export function JobsTab() {
                           className="grid grid-cols-1 gap-2 rounded-md border border-ui-border-base bg-ui-bg-subtle p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]"
                         >
                           <Text size="xsmall" className="break-all text-ui-fg-subtle">
-                            {variantTitle.variant_id}
+                            {sourceProductQuery.data?.variants?.find(
+                              (variant) => variant.id === variantTitle.variant_id,
+                            )?.title || 'Variant'}
                           </Text>
                           <Input
                             value={variantTitle.title}
-                            aria-label={`Generated name for variant ${variantTitle.variant_id}`}
+                            aria-label={`Generated name for variant ${index + 1}`}
                             onChange={(event) =>
                               updateReviewVariantTitle(index, event.target.value)
                             }

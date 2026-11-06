@@ -30,7 +30,9 @@ export function ProductEditorHeader({
             {statusBadge(content?.status)}
           </div>
           <Text size="xsmall" leading="compact" className="truncate text-ui-fg-subtle">
-            {sku ?? MISSING_SKU_LABEL} · {productId || 'Choose a product'}
+            {[sku ?? MISSING_SKU_LABEL, product?.handle ? `/${product.handle}` : productId]
+              .filter(Boolean)
+              .join(' · ')}
           </Text>
         </div>
       </div>

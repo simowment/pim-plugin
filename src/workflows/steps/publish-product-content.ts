@@ -34,7 +34,7 @@ export const publishProductContentStep = createStep(
 
     if (!PUBLISHABLE_STATUSES.includes(content.status as ProductContentStatus)) {
       throw new MedusaError(
-        MedusaError.Types.UNEXPECTED_STATE,
+        MedusaError.Types.NOT_ALLOWED,
         `Cannot publish content with status "${content.status}". Must be one of: ${PUBLISHABLE_STATUSES.join(', ')}`,
       )
     }

@@ -5,8 +5,11 @@ import { statusBadge, type PimContent } from './shared'
 const DRAWER_SIDE_INSET_PX = 8
 const DRAWER_LAYER_Z_INDEX = 100
 const COMPLETION_FIELD_COUNT = 7
+export const COMPLETION_HELP =
+  'The % counts which of 7 parts are filled in: title, short description, description, highlights, specifications, SEO title and SEO description.'
 
 interface LocaleStatusStripProps {
+  baseLocale: string
   channel: string
   contents: PimContent[] | undefined
   locale: string
@@ -15,6 +18,7 @@ interface LocaleStatusStripProps {
 }
 
 export function LocaleStatusStrip({
+  baseLocale,
   channel,
   contents,
   locale,
@@ -53,10 +57,10 @@ export function LocaleStatusStrip({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <Text size="small" leading="compact" weight="plus">
-              Locales {activeLocaleCount}/{locales.length}
+              Languages {activeLocaleCount}/{locales.length}
             </Text>
             <Text size="xsmall" leading="compact" className="truncate text-ui-fg-subtle">
-              {locale.toUpperCase()} - {currentLocale?.completion ?? 0}% complete
+              {locale.toUpperCase()} - {currentLocale?.content ? `${currentLocale.completion}% filled in` : 'not started'}
             </Text>
           </div>
           <Button size="small" variant="secondary" className="shrink-0" onClick={() => setOpen(true)}>
@@ -79,7 +83,7 @@ export function LocaleStatusStrip({
           >
             <Drawer.Header>
               <div className="flex items-center justify-between gap-3">
-                <Drawer.Title>Locale status</Drawer.Title>
+                <Drawer.Title>Languages</Drawer.Title>
                 <Drawer.Close asChild>
                   <Button size="small" variant="secondary">
                     Done
@@ -92,6 +96,7 @@ export function LocaleStatusStrip({
             </Drawer.Header>
             <Drawer.Body className="p-4">
               <LocaleRows
+                baseLocale={baseLocale}
                 localeRows={localeRows}
                 selectedLocale={locale}
                 onLocaleSelect={handleLocaleSelect}
@@ -103,9 +108,10 @@ export function LocaleStatusStrip({
 
       <div className="order-2 hidden border-l border-ui-border-base bg-ui-bg-subtle px-2 py-3 xl:block">
         <Text size="small" leading="compact" weight="plus">
-          Locales {activeLocaleCount}/{locales.length}
+          Languages {activeLocaleCount}/{locales.length}
         </Text>
         <LocaleRows
+          baseLocale={baseLocale}
           localeRows={localeRows}
           selectedLocale={locale}
           onLocaleSelect={onLocaleSelect}
@@ -122,12 +128,13 @@ interface LocaleRow {
 }
 
 interface LocaleRowsProps {
+  baseLocale: string
   localeRows: LocaleRow[]
   selectedLocale: string
   onLocaleSelect: (locale: string) => boolean | void
 }
 
-function LocaleRows({ localeRows, selectedLocale, onLocaleSelect }: LocaleRowsProps) {
+function LocaleRows({ baseLocale, localeRows, selectedLocale, onLocaleSelect }: LocaleRowsProps) {
   return (
     <div className="mt-2 flex flex-col gap-1.5">
       {localeRows.map((row) => (
@@ -144,19 +151,25 @@ function LocaleRows({ localeRows, selectedLocale, onLocaleSelect }: LocaleRowsPr
           <div className="flex items-center justify-between gap-2">
             <Text size="small" leading="compact" weight="plus">
               {row.code.toUpperCase()}
+              {row.code === baseLocale ? ' (base)' : ''}
             </Text>
             {statusBadge(row.content?.status)}
           </div>
-          <div className="mt-1 flex items-center justify-between gap-1">
-            <Text size="xsmall" leading="compact" className="text-ui-fg-subtle">
-              {row.content ? `${row.completion}%` : 'Empty'}
-            </Text>
-            <Text size="xsmall" leading="compact" weight="plus">
-              {row.content ? 'Continue' : 'Create'}
+          <div className="mt-1">
+            <Text
+              size="xsmall"
+              leading="compact"
+              className="text-ui-fg-subtle"
+              title={row.content ? COMPLETION_HELP : undefined}
+            >
+              {row.content ? `${row.completion}% filled in` : 'Not started'}
             </Text>
           </div>
         </button>
       ))}
+      <Text size="xsmall" leading="compact" className="text-ui-fg-muted mt-1">
+        {COMPLETION_HELP}
+      </Text>
     </div>
   )
 }

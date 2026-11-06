@@ -20,8 +20,8 @@ export const deleteProductContentStep = createStep(
 
     if (content.status === PUBLISHED_STATUS) {
       throw new MedusaError(
-        MedusaError.Types.UNEXPECTED_STATE,
-        'Published PIM content cannot be deleted. Archive or replace it by publishing another draft first.',
+        MedusaError.Types.NOT_ALLOWED,
+        'Published content cannot be deleted. Unpublish it first (POST /admin/pim/content/:id/archive, or the Unpublish button), or publish another draft to replace it.',
       )
     }
 

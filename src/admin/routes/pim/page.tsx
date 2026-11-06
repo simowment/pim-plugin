@@ -1,6 +1,7 @@
 import { defineRouteConfig } from '@medusajs/admin-sdk'
 import { useState } from 'react'
-import { Tabs, Text } from '@medusajs/ui'
+import { DocumentText } from '@medusajs/icons'
+import { Heading, Tabs, Text } from '@medusajs/ui'
 import { AiSettingsTab } from './ai-settings-tab'
 import { JobsTab } from './jobs-tab'
 import { MetadataFieldsTab } from './metadata-fields-tab'
@@ -11,35 +12,35 @@ const PimPage = () => {
 
   return (
     <div className="flex flex-col gap-y-2 p-3">
-      <div className="flex items-center justify-between">
-        <div className="min-w-0">
-          <Text size="xlarge" weight="plus">
-            Product Content Manager
-          </Text>
-        </div>
+      <div className="min-w-0">
+        <Heading level="h1">Product content</Heading>
+        <Text size="small" className="text-ui-fg-subtle">
+          Storefront copy, SEO text and translations for each product, per language. Without an
+          entry here the storefront uses the product&apos;s own title and description. Price,
+          stock and images stay in Products.
+        </Text>
       </div>
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="-mx-3 px-3 sm:mx-0 sm:px-0">
           <Tabs.List className="grid w-full grid-cols-2 gap-1 sm:flex sm:w-auto sm:gap-0">
-            <Tabs.Trigger value="products" className="justify-center" aria-label="Product Content">
-              <span aria-hidden="true" className="sm:hidden">Content</span>
-              <span aria-hidden="true" className="hidden sm:inline">Product Content</span>
+            <Tabs.Trigger value="products" className="justify-center">
+              Content
             </Tabs.Trigger>
-            <Tabs.Trigger value="jobs" className="justify-center" aria-label="AI Review Queue">
-              <span aria-hidden="true" className="sm:hidden">Queue</span>
-              <span aria-hidden="true" className="hidden sm:inline">AI Review Queue</span>
+            <Tabs.Trigger value="jobs" className="justify-center" aria-label="AI review queue">
+              <span aria-hidden="true" className="sm:hidden">AI queue</span>
+              <span aria-hidden="true" className="hidden sm:inline">AI review queue</span>
             </Tabs.Trigger>
             <Tabs.Trigger value="ai-settings" className="justify-center">
-              AI Setup
+              AI setup
             </Tabs.Trigger>
-            <Tabs.Trigger value="metadata-fields" className="justify-center" aria-label="Field Templates">
+            <Tabs.Trigger value="metadata-fields" className="justify-center" aria-label="Field templates">
               <span aria-hidden="true" className="sm:hidden">Fields</span>
-              <span aria-hidden="true" className="hidden sm:inline">Field Templates</span>
+              <span aria-hidden="true" className="hidden sm:inline">Field templates</span>
             </Tabs.Trigger>
           </Tabs.List>
         </div>
         <Tabs.Content value="products">
-          <ProductsTab />
+          <ProductsTab onOpenAiSetup={() => setActiveTab('ai-settings')} />
         </Tabs.Content>
         <Tabs.Content value="jobs">
           <JobsTab />
@@ -56,7 +57,9 @@ const PimPage = () => {
 }
 
 export const config = defineRouteConfig({
-  label: 'PIM',
+  label: 'Product content',
+  icon: DocumentText,
+  nested: '/products',
 })
 
 export default PimPage

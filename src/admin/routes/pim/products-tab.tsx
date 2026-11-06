@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Trash } from '@medusajs/icons'
-import { Button, IconButton, Input, Label, Select, Text, Textarea, toast } from '@medusajs/ui'
+import { Button, IconButton, Input, Label, Text, Textarea, toast, usePrompt } from '@medusajs/ui'
 import { sdk } from '../../lib/sdk'
 import { getErrorMessage } from '../../../lib/error-messages'
 import { AiDraftHelper } from './ai-draft-helper'
+import { usePimAiStatus } from './ai-status'
 import { AutoTranslatePanel } from './auto-translate-panel'
 import { LocaleStatusStrip } from './locale-status-strip'
 import { MetadataFieldInput } from './metadata-field-input'
@@ -39,6 +40,7 @@ import {
   type ProductContentResponse,
   type Specification,
   type TranslateField,
+  type VariantTitle,
 } from './shared'
 
 const PRODUCTS_PAGE_SIZE = 10
@@ -46,10 +48,24 @@ const VARIANT_TITLE_PAGE_SIZE = 8
 const FIRST_PAGE_INDEX = 0
 const PAGE_DISPLAY_OFFSET = 1
 
-export function ProductsTab() {
+function readLinkedProductId(): string {
+  if (typeof window === 'undefined') return ''
+  const value = new URLSearchParams(window.location.search).get('product_id') ?? ''
+  return /^[A-Za-z0-9_]{1,64}$/.test(value) ? value : ''
+}
+
+interface ProductsTabProps {
+  onOpenAiSetup?: () => void
+}
+
+export function ProductsTab({ onOpenAiSetup }: ProductsTabProps = {}) {
   const queryClient = useQueryClient()
+  const prompt = usePrompt()
+  const aiStatus = usePimAiStatus()
   const [search, setSearch] = useState('')
-  const [selectedProductId, setSelectedProductId] = useState('')
+  // `?product_id=` deep link (the product page's "Edit product content" link).
+  const [linkedProductId] = useState(readLinkedProductId)
+  const [selectedProductId, setSelectedProductId] = useState(linkedProductId)
   const [selectedProductSnapshot, setSelectedProductSnapshot] = useState<AdminProduct | null>(null)
   const [locale, setLocale] = useState(DEFAULT_LOCALE)
   const [form, setForm] = useState(emptyForm)
@@ -58,11 +74,9 @@ export function ProductsTab() {
   const [metadataErrors, setMetadataErrors] = useState<Record<string, string>>({})
   const productsPerPage = PRODUCTS_PAGE_SIZE
 
-  // AI Generation configuration
-  const [aiMode, setAiMode] = useState<AiMode>('translate')
+  // AI drafting configuration (translation has its own one-step panel)
+  const [aiMode, setAiMode] = useState<AiMode>('rewrite')
   const [aiTone, setAiTone] = useState<AiTone>('neutral')
-  const [aiSourceLocale, setAiSourceLocale] = useState(DEFAULT_LOCALE)
-  const [translateFields, setTranslateFields] = useState<TranslateField[]>(DEFAULT_TRANSLATE_FIELDS)
   const [editorTab, setEditorTab] = useState<ProductEditorTab>('copy')
 
   const configQuery = useQuery({
@@ -77,6 +91,12 @@ export function ProductsTab() {
     [configuredLocales],
   )
   const configuredDefaultLocale = configQuery.data?.config.default_locale
+  // The base language: the only one pre-filled from the Medusa product itself.
+  const baseLocale =
+    configuredDefaultLocale && locales.includes(configuredDefaultLocale)
+      ? configuredDefaultLocale
+      : (locales[0] ?? DEFAULT_LOCALE)
+  const isBaseLocale = locale === baseLocale
   const appliedConfigLocale = useRef(false)
 
   useEffect(() => {
@@ -90,24 +110,8 @@ export function ProductsTab() {
         : locales[0]
     if (initialLocale) {
       setLocale(initialLocale)
-      setAiSourceLocale(initialLocale)
     }
   }, [configQuery.data, configuredDefaultLocale, locales])
-
-  useEffect(() => {
-    if (aiMode !== 'translate') {
-      return
-    }
-
-    if (aiSourceLocale !== locale) {
-      return
-    }
-
-    const nextSourceLocale = locales.find((item) => item !== locale)
-    if (nextSourceLocale) {
-      setAiSourceLocale(nextSourceLocale)
-    }
-  }, [aiMode, aiSourceLocale, locale, locales])
 
   // Fetch custom metadata field definitions
   const metadataFieldsQuery = useQuery({
@@ -144,6 +148,24 @@ export function ProductsTab() {
     }
   }, [products, selectedProductId])
 
+  // A deep-linked product may not be on the current list page: load it once.
+  const linkedProductQuery = useQuery({
+    queryKey: ['pim-linked-product', linkedProductId],
+    queryFn: () =>
+      sdk.admin.product.retrieve(linkedProductId, {
+        fields: 'id,title,handle,thumbnail,description,variants.id,variants.title,variants.sku',
+      } as Record<string, unknown>) as Promise<{ product: AdminProduct }>,
+    enabled: Boolean(linkedProductId),
+    retry: false,
+  })
+
+  useEffect(() => {
+    const linked = linkedProductQuery.data?.product
+    if (linked && !selectedProductSnapshot) {
+      setSelectedProductSnapshot(linked)
+    }
+  }, [linkedProductQuery.data, selectedProductSnapshot])
+
   const selectedProduct = useMemo(
     () =>
       products.find((product) => product.id === selectedProductId) ??
@@ -177,29 +199,46 @@ export function ProductsTab() {
     enabled: Boolean(selectedProductId && configQuery.data?.config),
   })
 
-  const activeContent =
-    contentQuery.data?.content?.find((content) => content.status !== 'archived') ??
-    contentQuery.data?.content?.[0]
+  // Unpublished (archived) records are history: the editor starts from the defaults again.
+  const activeContent = contentQuery.data?.content?.find(
+    (content) => content.status !== 'archived',
+  )
+  const baseSpecifications = useMemo(
+    () => contentQuery.data?.supplier_specifications ?? [],
+    [contentQuery.data?.supplier_specifications],
+  )
+  // Only the base language starts from the supplier facts; other languages start empty.
   const displayedSpecifications = useMemo(
     () =>
       activeContent?.specifications_json?.length
         ? activeContent.specifications_json
-        : (contentQuery.data?.supplier_specifications ?? []),
-    [activeContent?.specifications_json, contentQuery.data?.supplier_specifications],
+        : isBaseLocale
+          ? baseSpecifications
+          : [],
+    [activeContent?.specifications_json, baseSpecifications, isBaseLocale],
   )
-  const variants = useMemo(
-    () => contentQuery.data?.variants ?? selectedProduct?.variants ?? [],
-    [contentQuery.data?.variants, selectedProduct?.variants],
+  const variants = useMemo(() => {
+    const skuById = new Map(
+      (selectedProduct?.variants ?? []).map((variant) => [variant.id, variant.sku ?? null]),
+    )
+    return (contentQuery.data?.variants ?? selectedProduct?.variants ?? []).map((variant) => ({
+      id: variant.id,
+      title: variant.title ?? '',
+      sku: skuById.get(variant.id) ?? null,
+    }))
+  }, [contentQuery.data?.variants, selectedProduct?.variants])
+  const baseVariantTitles = useMemo<VariantTitle[]>(
+    () => variants.map((variant) => ({ variant_id: variant.id, title: variant.title ?? '' })),
+    [variants],
   )
-  const displayedVariantTitles = useMemo(
+  const displayedVariantTitles = useMemo<VariantTitle[]>(
     () =>
       activeContent?.variant_titles_json?.length
         ? activeContent.variant_titles_json
-        : variants.map((variant) => ({
-            variant_id: variant.id,
-            title: variant.title ?? '',
-          })),
-    [activeContent?.variant_titles_json, variants],
+        : isBaseLocale
+          ? baseVariantTitles
+          : [],
+    [activeContent?.variant_titles_json, baseVariantTitles, isBaseLocale],
   )
   const variantTitlePageCount = Math.ceil(variants.length / VARIANT_TITLE_PAGE_SIZE)
   const currentVariantTitlePage = variantTitlePageCount
@@ -213,44 +252,15 @@ export function ProductsTab() {
     ? variantTitleStart + PAGE_DISPLAY_OFFSET
     : FIRST_PAGE_INDEX
 
-  // Detect draft dirtiness
-  const isDirty = useMemo(() => {
-    if (!selectedProduct) return false
-    const initialTitle = activeContent?.title ?? selectedProduct?.title ?? ''
-    const initialShortDesc = activeContent?.short_description ?? ''
-    const initialDesc = activeContent?.description ?? selectedProduct?.description ?? ''
-    const initialSeoTitle = String(activeContent?.seo_json?.title ?? '')
-    const initialSeoDesc = String(activeContent?.seo_json?.description ?? '')
-    const initialSeoKeywords = Array.isArray(activeContent?.seo_json?.keywords)
-      ? activeContent.seo_json.keywords.join(', ')
-      : ''
-
-    const initialBullets = activeContent?.bullets_json ?? []
-    const initialVariantTitles = displayedVariantTitles
-    const initialSpecs = displayedSpecifications
-    const initialMetadata = normalizeMetadataValues(activeContent?.custom_metadata_json)
-
-    if (form.title !== initialTitle) return true
-    if (form.short_description !== initialShortDesc) return true
-    if (form.description !== initialDesc) return true
-    if (form.seo_title !== initialSeoTitle) return true
-    if (form.seo_description !== initialSeoDesc) return true
-    if (form.seo_keywords !== initialSeoKeywords) return true
-
-    if (JSON.stringify(form.variant_titles_json) !== JSON.stringify(initialVariantTitles))
-      return true
-    if (JSON.stringify(form.bullets_json) !== JSON.stringify(initialBullets)) return true
-    if (JSON.stringify(form.specifications_json) !== JSON.stringify(initialSpecs)) return true
-    if (JSON.stringify(form.custom_metadata_json) !== JSON.stringify(initialMetadata)) return true
-
-    return false
-  }, [form, activeContent, selectedProduct, displayedSpecifications, displayedVariantTitles])
-
-  useEffect(() => {
-    setForm({
-      title: activeContent?.title ?? selectedProduct?.title ?? '',
+  // What the editor starts from. PIM-B2: only the base language is pre-filled
+  // from the Medusa product; other languages start empty (the base text is
+  // shown as a placeholder and can be copied in with "Copy from base").
+  const initialForm = useMemo(
+    () => ({
+      title: activeContent?.title ?? (isBaseLocale ? (selectedProduct?.title ?? '') : ''),
       short_description: activeContent?.short_description ?? '',
-      description: activeContent?.description ?? selectedProduct?.description ?? '',
+      description:
+        activeContent?.description ?? (isBaseLocale ? (selectedProduct?.description ?? '') : ''),
       variant_titles_json: displayedVariantTitles,
       bullets_json: activeContent?.bullets_json ?? [],
       specifications_json: displayedSpecifications,
@@ -261,25 +271,28 @@ export function ProductsTab() {
         : '',
       custom_metadata_json: normalizeMetadataValues(activeContent?.custom_metadata_json),
       change_reason: '',
-    })
-  }, [
-    activeContent?.id,
-    activeContent?.title,
-    activeContent?.short_description,
-    activeContent?.description,
-    activeContent?.seo_json,
-    activeContent?.bullets_json,
-    activeContent?.custom_metadata_json,
-    selectedProductId,
-    selectedProduct?.title,
-    selectedProduct?.description,
-    locale,
-    channel,
-    contentQuery.data?.supplier_specifications,
-    contentQuery.data?.variants,
-    displayedSpecifications,
-    displayedVariantTitles,
-  ])
+    }),
+    [
+      activeContent,
+      isBaseLocale,
+      selectedProduct?.title,
+      selectedProduct?.description,
+      displayedVariantTitles,
+      displayedSpecifications,
+    ],
+  )
+
+  // Detect draft dirtiness against exactly what the editor started from.
+  const isDirty = useMemo(() => {
+    if (!selectedProduct) return false
+    const { change_reason: _ignoredReason, ...current } = form
+    const { change_reason: _ignoredInitialReason, ...initial } = initialForm
+    return JSON.stringify(current) !== JSON.stringify(initial)
+  }, [form, initialForm, selectedProduct])
+
+  useEffect(() => {
+    setForm(initialForm)
+  }, [initialForm, selectedProductId, locale, channel])
 
   useEffect(() => {
     setMetadataErrors({})
@@ -289,29 +302,47 @@ export function ProductsTab() {
     setVariantTitlePage(FIRST_PAGE_INDEX)
   }, [selectedProductId])
 
-  const confirmSwitch = () => {
-    if (isDirty) {
-      return window.confirm('You have unsaved changes. Discard changes and continue?')
+  const confirmSwitch = async () => {
+    if (!isDirty) {
+      return true
     }
-    return true
+    return prompt({
+      title: 'Discard unsaved changes?',
+      description: 'Your changes to this product content are not saved yet.',
+      confirmText: 'Discard',
+      cancelText: 'Keep editing',
+    })
   }
 
   const handleProductSelect = (id: string) => {
-    if (!confirmSwitch()) {
-      return false
-    }
-
-    setSelectedProductId(id)
+    void confirmSwitch().then((confirmed) => {
+      if (confirmed) setSelectedProductId(id)
+    })
     return true
   }
 
   const handleLocaleSelect = (item: string) => {
-    if (!confirmSwitch()) {
-      return false
-    }
-
-    setLocale(item)
+    void confirmSwitch().then((confirmed) => {
+      if (confirmed) setLocale(item)
+    })
     return true
+  }
+
+  const copyFromBase = () => {
+    setForm((current) => ({
+      ...current,
+      title: current.title || selectedProduct?.title || '',
+      description: current.description || selectedProduct?.description || '',
+      variant_titles_json: baseVariantTitles.map(
+        (base) =>
+          current.variant_titles_json.find(
+            (item) => item.variant_id === base.variant_id && item.title,
+          ) ?? base,
+      ),
+      specifications_json: current.specifications_json.length
+        ? current.specifications_json
+        : baseSpecifications,
+    }))
   }
 
   const invalidateContent = () => {
@@ -329,7 +360,7 @@ export function ProductsTab() {
     title: form.title || null,
     short_description: form.short_description || null,
     description: form.description || null,
-    variant_titles_json: form.variant_titles_json,
+    variant_titles_json: form.variant_titles_json.filter((item) => item.title.trim()),
     bullets_json: form.bullets_json,
     specifications_json: form.specifications_json,
     seo_json: {
@@ -378,17 +409,15 @@ export function ProductsTab() {
       sdk.client.fetch(`/admin/pim/products/${selectedProductId}/generate`, {
         method: 'POST',
         body: {
-          source_locale: aiSourceLocale,
           target_locale: locale,
           channel,
           mode: aiMode,
           tone: aiTone,
-          translate_fields: aiMode === 'translate' ? translateFields : undefined,
           save_as: 'draft',
         },
       }),
     onSuccess: () => {
-      toast.success('AI draft started. Review it in the AI Review Queue when it is ready.')
+      toast.success('AI draft created. Review it in the AI review queue.')
       invalidateContent()
     },
     onError: (error: unknown) => {
@@ -420,7 +449,46 @@ export function ProductsTab() {
     })
   }
 
+  const translateHereMutation = useMutation({
+    mutationFn: () => translateCopySpecsDraft(baseLocale, locale, DEFAULT_TRANSLATE_FIELDS),
+    onSuccess: () => {
+      toast.success(`${locale.toUpperCase()} translation draft is in the AI review queue.`)
+      invalidateContent()
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error), { duration: 8000 }),
+  })
+
+  const unpublishMutation = useMutation({
+    mutationFn: (contentId: string) =>
+      sdk.client.fetch<{ removed_translations: number }>(
+        `/admin/pim/content/${contentId}/archive`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      toast.success(
+        `Unpublished ${locale.toUpperCase()}. The storefront shows the product's own text again.`,
+      )
+      invalidateContent()
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
+
+  const handleUnpublish = async () => {
+    if (!activeContent?.id) return
+    const confirmed = await prompt({
+      title: `Unpublish ${locale.toUpperCase()}?`,
+      description:
+        "The storefront goes back to the product's own title and description for this language, and the translation copied to the store is removed. The editor then starts from the product text again.",
+      confirmText: 'Unpublish',
+      cancelText: 'Cancel',
+    })
+    if (confirmed) {
+      unpublishMutation.mutate(activeContent.id)
+    }
+  }
+
   const canPublish = activeContent && ['draft', 'reviewed'].includes(activeContent.status)
+  const canUnpublish = activeContent?.status === 'published'
   const hasMetadataErrors = Object.values(metadataErrors).some((message) => Boolean(message))
 
   // Bullet list handlers
@@ -499,21 +567,11 @@ export function ProductsTab() {
         isLoading={productsQuery.isLoading}
         onProductSelect={handleProductSelect}
         onSearchChange={(value) => {
-          if (confirmSwitch()) {
-            setSearch(value)
-            setProductPage(0)
-          }
+          setSearch(value)
+          setProductPage(0)
         }}
-        onPreviousPage={() => {
-          if (confirmSwitch()) {
-            setProductPage(productPage - 1)
-          }
-        }}
-        onNextPage={() => {
-          if (confirmSwitch()) {
-            setProductPage(productPage + 1)
-          }
-        }}
+        onPreviousPage={() => setProductPage(productPage - 1)}
+        onNextPage={() => setProductPage(productPage + 1)}
       />
 
       <div className="flex min-w-0 flex-col gap-3">
@@ -528,28 +586,22 @@ export function ProductsTab() {
           isLoading={productsQuery.isLoading}
           onProductSelect={handleProductSelect}
           onSearchChange={(value) => {
-            if (confirmSwitch()) {
-              setSearch(value)
-              setProductPage(0)
-            }
-          }}
-          onPreviousPage={() => {
-            if (confirmSwitch()) {
-              setProductPage(productPage - 1)
-            }
-          }}
-          onNextPage={() => {
-            if (confirmSwitch()) {
-              setProductPage(productPage + 1)
-            }
-          }}
+          setSearch(value)
+          setProductPage(0)
+        }}
+        onPreviousPage={() => setProductPage(productPage - 1)}
+        onNextPage={() => setProductPage(productPage + 1)}
         />
 
         <ProductEditorShell>
           {configQuery.isLoading ? (
             <LoadingState />
           ) : configQuery.isError ? (
-            <ErrorState message="Unable to load PIM configuration." />
+            <ErrorState
+              message={`Could not load the product content settings: ${
+                (configQuery.error as Error | null)?.message ?? 'unknown error'
+              }`}
+            />
           ) : (
             <>
               <ProductEditorHeader
@@ -561,19 +613,27 @@ export function ProductsTab() {
               {!selectedProduct ? (
             <div className="flex flex-1 items-center justify-center p-8">
               <Text size="small" className="text-ui-fg-subtle">
-                Select a product from the sidebar to enrich copy.
+                Pick a product on the left to edit its storefront text.
               </Text>
             </div>
           ) : contentQuery.isLoading ? (
             <LoadingState />
           ) : contentQuery.isError ? (
-            <ErrorState message="Unable to load PIM content for this product." />
+            <ErrorState
+              message={`Could not load this product's content: ${
+                (contentQuery.error as Error | null)?.message ?? 'unknown error'
+              }`}
+            />
           ) : (
             <ProductEditorWorkspace
               activeTab={editorTab}
               actionBar={
                 <ProductEditorActionBar
                   canPublish={canPublish}
+                  canUnpublish={canUnpublish}
+                  isDirty={isDirty}
+                  isUnpublishing={unpublishMutation.isPending}
+                  onUnpublish={() => void handleUnpublish()}
                   changeReason={form.change_reason}
                   hasMetadataErrors={hasMetadataErrors}
                   isPublishing={publishMutation.isPending}
@@ -587,6 +647,7 @@ export function ProductsTab() {
               }
               localeStatus={
                 <LocaleStatusStrip
+                  baseLocale={baseLocale}
                   channel={channel}
                   contents={allContentQuery.data?.content}
                   locale={locale}
@@ -598,29 +659,44 @@ export function ProductsTab() {
             >
               {editorTab === 'copy' && (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem] 2xl:grid-cols-[minmax(0,1.25fr)_minmax(20rem,0.75fr)]">
-                  <AutoTranslatePanel
-                    locales={locales}
-                    currentLocale={locale}
-                    selectedProductId={selectedProductId}
-                    isDirty={isDirty}
-                    isBusy={saveDraftMutation.isPending || generateMutation.isPending}
-                    onSaveSource={saveCurrentDraftForTranslation}
-                    onTranslateLocale={translateCopySpecsDraft}
-                    onComplete={invalidateContent}
-                  />
+                  {!isBaseLocale && (
+                    <div className="bg-ui-bg-subtle flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between lg:col-span-2">
+                      <Text size="small" leading="compact" className="text-ui-fg-subtle">
+                        {locale.toUpperCase()} translation. Empty fields show the{' '}
+                        {baseLocale.toUpperCase()} product text in grey; the storefront uses that
+                        text until you publish a translation.
+                      </Text>
+                      <div className="flex shrink-0 gap-2">
+                        <Button size="small" variant="secondary" onClick={copyFromBase}>
+                          Copy from base
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="secondary"
+                          isLoading={translateHereMutation.isPending}
+                          disabled={!aiStatus.ready || translateHereMutation.isPending}
+                          title={aiStatus.ready ? undefined : 'AI is not set up (see the AI setup tab)'}
+                          onClick={() => translateHereMutation.mutate()}
+                        >
+                          Translate from {baseLocale.toUpperCase()} with AI
+                        </Button>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="space-y-3">
                     <Text size="base" weight="plus" className="border-b pb-2">
-                      Copy Writing
+                      Text
                     </Text>
                     <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-                      <Field label="Enriched Title">
+                      <Field label="Title">
                         <Input
                           value={form.title}
+                          placeholder={isBaseLocale ? undefined : (selectedProduct?.title ?? '')}
                           onChange={(event) => setForm({ ...form, title: event.target.value })}
                         />
                       </Field>
-                      <Field label="Short Description">
+                      <Field label="Short description (subtitle)">
                         <Input
                           value={form.short_description}
                           onChange={(event) =>
@@ -629,10 +705,13 @@ export function ProductsTab() {
                         />
                       </Field>
                     </div>
-                    <Field label="Full Description">
+                    <Field label="Description">
                       <Textarea
                         rows={7}
                         value={form.description}
+                        placeholder={
+                          isBaseLocale ? undefined : (selectedProduct?.description ?? '')
+                        }
                         onChange={(event) => setForm({ ...form, description: event.target.value })}
                       />
                     </Field>
@@ -641,10 +720,10 @@ export function ProductsTab() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between border-b pb-2">
                       <Text size="base" weight="plus">
-                        Bullet Highlights
+                        Highlights
                       </Text>
                       <Button size="small" variant="secondary" onClick={addBullet}>
-                        <Plus /> Add Bullet
+                        <Plus /> Add highlight
                       </Button>
                     </div>
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-1">
@@ -678,7 +757,7 @@ export function ProductsTab() {
                       ))}
                       {!form.bullets_json.length && (
                         <Text size="small" className="text-ui-fg-muted italic">
-                          No highlights yet.
+                          No highlights. Optional short selling points.
                         </Text>
                       )}
                     </div>
@@ -688,11 +767,13 @@ export function ProductsTab() {
                     <div className="flex flex-col gap-3 border-b pb-3 sm:flex-row sm:items-end sm:justify-between">
                       <div className="min-w-0">
                         <Text size="base" weight="plus">
-                          Variant Names
-                        </Text>
-                        <Text size="small" leading="compact" className="text-ui-fg-subtle">
-                          Translate customer-facing variant names for the selected locale.
-                        </Text>
+                          Variant names
+                      </Text>
+                      <Text size="small" leading="compact" className="text-ui-fg-subtle">
+                        {isBaseLocale
+                          ? 'The variant names customers see.'
+                          : `Variant names in ${locale.toUpperCase()}. Empty names keep the product's own name.`}
+                      </Text>
                         {variants.length > FIRST_PAGE_INDEX && (
                           <Text size="xsmall" leading="compact" className="text-ui-fg-muted mt-1">
                             Showing {variantTitleDisplayStart}-{variantTitleEnd} of{' '}
@@ -740,9 +821,7 @@ export function ProductsTab() {
                       {visibleVariants.map((variant) => {
                         const translatedTitle =
                           form.variant_titles_json.find((item) => item.variant_id === variant.id)
-                            ?.title ??
-                          variant.title ??
-                          ''
+                            ?.title ?? (isBaseLocale ? (variant.title ?? '') : '')
 
                         return (
                           <div
@@ -756,23 +835,25 @@ export function ProductsTab() {
                                 weight="plus"
                                 className="truncate"
                               >
-                                {variant.title || variant.id}
+                                {variant.title || 'Untitled variant'}
                               </Text>
-                              <Text
-                                size="xsmall"
-                                leading="compact"
-                                className="text-ui-fg-subtle truncate"
-                              >
-                                {variant.id}
-                              </Text>
+                              {variant.sku && (
+                                <Text
+                                  size="xsmall"
+                                  leading="compact"
+                                  className="text-ui-fg-subtle truncate"
+                                >
+                                  SKU {variant.sku}
+                                </Text>
+                              )}
                             </div>
                             <Input
                               value={translatedTitle}
-                              aria-label={`Localized name for variant ${variant.title || variant.id}`}
+                              aria-label={`Name in ${locale.toUpperCase()} for variant ${variant.title || variant.sku || ''}`}
                               onChange={(event) =>
                                 updateVariantTitle(variant.id, event.target.value)
                               }
-                              placeholder="Localized variant name"
+                              placeholder={variant.title || 'Variant name'}
                             />
                           </div>
                         )
@@ -793,15 +874,14 @@ export function ProductsTab() {
                   <div className="space-y-4">
                     <div className="border-b pb-2">
                       <Text size="base" weight="plus">
-                        Reusable Product Fields
+                        Template fields
                       </Text>
                       <Text size="xsmall" className="text-ui-fg-subtle">
-                        Optional fields from Field Templates. Use them for details you want editors
-                        and the storefront to handle consistently.
+                        Fields defined on the Field templates tab, the same for every product.
                       </Text>
                     </div>
                     {metadataFieldsQuery.isError ? (
-                      <ErrorState message="Unable to load metadata field definitions." />
+                      <ErrorState message="Could not load the field templates." />
                     ) : contentMetadataFields.length > 0 ? (
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         {contentMetadataFields.map((field) => {
@@ -835,8 +915,8 @@ export function ProductsTab() {
                       </div>
                     ) : (
                       <Text size="small" className="text-ui-fg-muted italic">
-                        No reusable fields yet. You can still edit specifications below, or create
-                        field templates for catalog-wide details.
+                        No field templates yet. Add them on the Field templates tab, or type
+                        specifications below.
                       </Text>
                     )}
                   </div>
@@ -846,16 +926,18 @@ export function ProductsTab() {
                     <div className="flex items-center justify-between border-b pb-2">
                       <div className="space-y-1">
                         <Text size="base" weight="plus">
-                          Product Specifications
+                          Specifications
                         </Text>
                         <Text size="xsmall" className="text-ui-fg-subtle">
                           {form.specifications_json.length
-                            ? `${form.specifications_json.length} editable product facts.`
-                            : 'Add supplier facts, dimensions, compatibility notes, and product details.'}
+                            ? `${form.specifications_json.length} product facts, such as material or size.`
+                            : isBaseLocale
+                              ? 'Product facts such as material, size or care.'
+                              : `No ${locale.toUpperCase()} specifications. Use "Copy from base" on the Copy tab to start from the base ones.`}
                         </Text>
                       </div>
                       <Button size="small" variant="secondary" onClick={addSpec}>
-                        <Plus /> Add Specification
+                        <Plus /> Add specification
                       </Button>
                     </div>
                     {form.specifications_json.length > 0 ? (
@@ -973,30 +1055,43 @@ export function ProductsTab() {
                       </div>
                     ) : (
                       <Text size="small" className="text-ui-fg-muted italic">
-                        No technical specifications defined.
+                        No specifications.
                       </Text>
                     )}
                   </div>
                 </>
               )}
 
-              {editorTab === 'seo_ai' && (
-                <>
+              {editorTab === 'ai' && (
+                <div className="space-y-4">
+                  <AutoTranslatePanel
+                    baseLocale={baseLocale}
+                    locales={locales}
+                    selectedProductId={selectedProductId}
+                    saveBaseFirst={isDirty && isBaseLocale}
+                    isBusy={saveDraftMutation.isPending || generateMutation.isPending}
+                    aiStatus={aiStatus}
+                    onOpenAiSetup={onOpenAiSetup}
+                    onSaveSource={saveCurrentDraftForTranslation}
+                    onTranslateLocale={translateCopySpecsDraft}
+                    onComplete={invalidateContent}
+                  />
                   <AiDraftHelper
                     mode={aiMode}
                     tone={aiTone}
-                    sourceLocale={aiSourceLocale}
                     targetLocale={locale}
-                    locales={locales}
-                    translateFields={translateFields}
                     isGenerating={generateMutation.isPending}
+                    aiStatus={aiStatus}
+                    onOpenAiSetup={onOpenAiSetup}
                     onModeChange={setAiMode}
                     onToneChange={setAiTone}
-                    onSourceLocaleChange={setAiSourceLocale}
-                    onTranslateFieldsChange={setTranslateFields}
                     onGenerate={() => generateMutation.mutate()}
                   />
+                </div>
+              )}
 
+              {editorTab === 'seo_ai' && (
+                <>
                   <SeoFieldsPanel
                     title={form.seo_title}
                     description={form.seo_description}

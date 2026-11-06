@@ -1,7 +1,7 @@
 import type { KeyboardEvent } from 'react'
 import { Text } from '@medusajs/ui'
 
-export type ProductEditorTab = 'copy' | 'specs' | 'seo_ai'
+export type ProductEditorTab = 'copy' | 'specs' | 'seo_ai' | 'ai'
 
 interface ProductEditorTabsProps {
   activeTab: ProductEditorTab
@@ -12,6 +12,7 @@ const EDITOR_TABS: Array<{ label: string; value: ProductEditorTab }> = [
   { label: 'Copy', value: 'copy' },
   { label: 'Specifications', value: 'specs' },
   { label: 'SEO', value: 'seo_ai' },
+  { label: 'AI', value: 'ai' },
 ]
 
 export function productEditorPanelId(tab: ProductEditorTab) {
@@ -56,7 +57,7 @@ export function ProductEditorTabs({ activeTab, onTabChange }: ProductEditorTabsP
 
   return (
     <div className="border-ui-border-base bg-ui-bg-base shrink-0 border-b">
-      <div className="grid grid-cols-3" role="tablist" aria-label="Product editor sections">
+      <div className="grid grid-cols-4" role="tablist" aria-label="Product editor sections">
         {EDITOR_TABS.map((tab) => (
           <button
             key={tab.value}

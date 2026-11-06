@@ -1,12 +1,54 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { PencilSquare, Trash } from '@medusajs/icons'
-import { Badge, Button, Checkbox, Container, FocusModal, IconButton, Input, Label, Select, Table, Text, toast } from '@medusajs/ui'
+import {
+  Badge,
+  Button,
+  Checkbox,
+  Container,
+  FocusModal,
+  IconButton,
+  Input,
+  Label,
+  Select,
+  Table,
+  Text,
+  toast,
+  usePrompt,
+} from '@medusajs/ui'
 import { sdk } from '../../lib/sdk'
 import { ErrorState, Field, LoadingState, type MetadataField, type MetadataFieldMutationBody } from './shared'
 
+const FIELD_TYPE_LABELS: Record<string, string> = {
+  string: 'Short text',
+  text: 'Long text',
+  number: 'Number',
+  boolean: 'Yes / no',
+  select: 'One choice from a list',
+  multiselect: 'Several choices from a list',
+  url: 'Link (URL)',
+  json: 'Structured data (JSON)',
+}
+
+// `localized` follows the scope on the server: content = per language, product = shared.
+const FIELD_SCOPE_LABELS: Record<string, string> = {
+  content: 'Different per language',
+  product: 'Same in every language',
+  variant: 'Per variant (not edited on this page)',
+}
+const SELECTABLE_SCOPES = ['content', 'product']
+
+function typeLabel(type: string) {
+  return FIELD_TYPE_LABELS[type] ?? type
+}
+
+function scopeLabel(scope: string) {
+  return FIELD_SCOPE_LABELS[scope] ?? scope
+}
+
 export function MetadataFieldsTab() {
   const queryClient = useQueryClient()
+  const prompt = usePrompt()
   const [showForm, setShowForm] = useState(false)
   const [editField, setEditField] = useState<MetadataField | null>(null)
 
@@ -27,7 +69,7 @@ export function MetadataFieldsTab() {
     visible_in_storefront: false,
   })
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['pim-metadata-fields'],
     queryFn: () =>
       sdk.client.fetch<{ metadata_fields: MetadataField[] }>('/admin/pim/metadata-fields'),
@@ -104,9 +146,15 @@ export function MetadataFieldsTab() {
     })
   }
 
-  const handleDelete = (id: string) => {
-    if (window.confirm('Delete this field template? This also removes saved values for this field across products.')) {
-      deleteMutation.mutate(id)
+  const handleDelete = async (field: MetadataField) => {
+    const confirmed = await prompt({
+      title: `Delete "${field.label}"?`,
+      description: 'This also removes the values saved for this field on every product.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+    })
+    if (confirmed) {
+      deleteMutation.mutate(field.id)
     }
   }
 
@@ -122,14 +170,15 @@ export function MetadataFieldsTab() {
       <div className="flex flex-col gap-3 border-b border-ui-border-base px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
         <div className="flex flex-col gap-y-1">
           <Text size="small" weight="plus">
-            Field Templates
+            Field templates
           </Text>
           <Text size="small" className="text-ui-fg-subtle">
-            Define reusable product fields that should appear consistently across products and locales.
+            Extra fields every product gets on the Specifications tab, such as material or care
+            instructions. Values are saved with the product content.
           </Text>
         </div>
         <Button size="small" onClick={() => setShowForm(!showForm)}>
-          {showForm ? 'Cancel' : 'New Field Template'}
+          {showForm ? 'Cancel' : 'New field template'}
         </Button>
       </div>
 
@@ -169,36 +218,36 @@ export function MetadataFieldsTab() {
                   <Select.Value />
                 </Select.Trigger>
                 <Select.Content>
-                  {['string', 'text', 'number', 'boolean', 'select', 'multiselect', 'json', 'url'].map(
-                    (type) => (
-                      <Select.Item key={type} value={type}>
-                        {type}
-                      </Select.Item>
-                    )
-                  )}
+                  {Object.keys(FIELD_TYPE_LABELS).map((type) => (
+                    <Select.Item key={type} value={type}>
+                      {typeLabel(type)}
+                    </Select.Item>
+                  ))}
                 </Select.Content>
               </Select>
             </Field>
-            <Field label="Where this field appears">
+            <Field label="Languages">
               <Select
                 size="small"
                 value={newField.scope}
-                onValueChange={(value) => setNewField({ ...newField, scope: value })}
+                onValueChange={(value) =>
+                  setNewField({ ...newField, scope: value, localized: value === 'content' })
+                }
               >
-                <Select.Trigger aria-label="Where this field appears">
+                <Select.Trigger aria-label="Languages">
                   <Select.Value />
                 </Select.Trigger>
                 <Select.Content>
-                  {['product', 'variant', 'content'].map((scope) => (
+                  {SELECTABLE_SCOPES.map((scope) => (
                     <Select.Item key={scope} value={scope}>
-                      {scope}
+                      {scopeLabel(scope)}
                     </Select.Item>
                   ))}
                 </Select.Content>
               </Select>
             </Field>
 
-            <Field label="Choices for select fields">
+            <Field label="Choices (list types only), as Label:value, comma separated">
               <Input
                 placeholder="Machine wash:machine_wash, Dry clean:dry_clean"
                 value={optionsText}
@@ -215,33 +264,13 @@ export function MetadataFieldsTab() {
             </Field>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-3 bg-ui-bg-base border rounded-lg">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="req"
-                checked={newField.required}
-                onCheckedChange={(checked) => setNewField({ ...newField, required: Boolean(checked) })}
-              />
-              <Label htmlFor="req">Required for editors</Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="loc"
-                checked={newField.localized}
-                onCheckedChange={(checked) => setNewField({ ...newField, localized: Boolean(checked) })}
-              />
-              <Label htmlFor="loc">Different per language</Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="store"
-                checked={newField.visible_in_storefront}
-                onCheckedChange={(checked) =>
-                  setNewField({ ...newField, visible_in_storefront: Boolean(checked) })
-                }
-              />
-              <Label htmlFor="store">Available to storefront</Label>
-            </div>
+          <div className="flex items-center gap-2 rounded-lg border bg-ui-bg-base p-3">
+            <Checkbox
+              id="req"
+              checked={newField.required}
+              onCheckedChange={(checked) => setNewField({ ...newField, required: Boolean(checked) })}
+            />
+            <Label htmlFor="req">Required: a product cannot be saved without it</Label>
           </div>
 
           <Button
@@ -250,46 +279,47 @@ export function MetadataFieldsTab() {
             disabled={createMutation.isPending || !newField.key || !newField.label}
             onClick={handleCreate}
           >
-            Save Field Template
+            Save field template
           </Button>
         </div>
       )}
 
       {isLoading ? (
         <LoadingState />
-      ) : data === undefined ? (
-        <ErrorState message="Unable to load metadata field definitions." />
+      ) : isError || data === undefined ? (
+        <ErrorState
+          message={`Could not load the field templates: ${(error as Error | null)?.message ?? 'unknown error'}`}
+        />
       ) : (
         <div className="overflow-x-auto">
           <Table>
             <Table.Header>
               <Table.Row>
-                <Table.HeaderCell>Internal Key</Table.HeaderCell>
                 <Table.HeaderCell>Name</Table.HeaderCell>
-                <Table.HeaderCell>Data Type</Table.HeaderCell>
-                <Table.HeaderCell>Used For</Table.HeaderCell>
-                <Table.HeaderCell>Rules</Table.HeaderCell>
-                <Table.HeaderCell>Storefront</Table.HeaderCell>
-                <Table.HeaderCell className="w-[180px]"></Table.HeaderCell>
+                <Table.HeaderCell>Key</Table.HeaderCell>
+                <Table.HeaderCell>Type</Table.HeaderCell>
+                <Table.HeaderCell>Languages</Table.HeaderCell>
+                <Table.HeaderCell>Required</Table.HeaderCell>
+                <Table.HeaderCell className="w-[120px]"></Table.HeaderCell>
               </Table.Row>
             </Table.Header>
             <Table.Body>
               {data?.metadata_fields?.map((field) => (
                 <Table.Row key={field.id}>
-                  <Table.Cell className="font-mono text-xs">{field.key}</Table.Cell>
                   <Table.Cell>{field.label}</Table.Cell>
-                  <Table.Cell>{field.type}</Table.Cell>
-                  <Table.Cell>{field.scope}</Table.Cell>
+                  <Table.Cell className="font-mono text-xs">{field.key}</Table.Cell>
+                  <Table.Cell>{typeLabel(field.type)}</Table.Cell>
+                  <Table.Cell>{scopeLabel(field.scope)}</Table.Cell>
                   <Table.Cell>
-                    <div className="flex flex-wrap gap-1">
-                      {field.required && <Badge size="2xsmall" color="red">Required</Badge>}
-                      {field.localized && <Badge size="2xsmall" color="blue">Locale</Badge>}
-                    </div>
-                  </Table.Cell>
-                  <Table.Cell>
-                    <Badge color={field.visible_in_storefront ? 'green' : 'grey'} size="2xsmall">
-                      {field.visible_in_storefront ? 'available' : 'admin only'}
-                    </Badge>
+                    {field.required ? (
+                      <Badge size="2xsmall" color="orange">
+                        Required
+                      </Badge>
+                    ) : (
+                      <Text size="small" className="text-ui-fg-subtle">
+                        Optional
+                      </Text>
+                    )}
                   </Table.Cell>
                   <Table.Cell>
                     <div className="flex gap-2 justify-end">
@@ -305,7 +335,7 @@ export function MetadataFieldsTab() {
                         size="small"
                         variant="transparent"
                         aria-label={`Delete field template ${field.label}`}
-                        onClick={() => handleDelete(field.id)}
+                        onClick={() => void handleDelete(field)}
                       >
                         <Trash className="text-ui-fg-danger" />
                       </IconButton>
@@ -315,8 +345,9 @@ export function MetadataFieldsTab() {
               ))}
               {!data.metadata_fields.length && (
                 <Table.Row>
-                  <td colSpan={7} className="py-8 text-center text-ui-fg-subtle">
-                    No field templates yet. Product specifications can still be edited directly in Product Content.
+                  <td colSpan={6} className="py-8 text-center text-ui-fg-subtle">
+                    No field templates yet. Specifications can still be typed per product on the
+                    Content tab.
                   </td>
                 </Table.Row>
               )}
@@ -331,9 +362,14 @@ export function MetadataFieldsTab() {
           <FocusModal.Content>
             <FocusModal.Header>
               <div className="flex items-center justify-between w-full pr-10">
-                <Text size="base" weight="plus">
-                  Edit Field Template
-                </Text>
+                <FocusModal.Title asChild>
+                  <Text size="base" weight="plus">
+                    Edit field template
+                  </Text>
+                </FocusModal.Title>
+                <FocusModal.Description className="sr-only">
+                  Change the name, help text, choices or required rule of this field template.
+                </FocusModal.Description>
                 <div className="flex items-center gap-2">
                   <Button size="small" variant="secondary" onClick={() => setEditField(null)}>
                     Cancel
@@ -362,7 +398,7 @@ export function MetadataFieldsTab() {
                       })
                     }
                   >
-                    Save Changes
+                    Save changes
                   </Button>
                 </div>
               </div>
@@ -380,41 +416,23 @@ export function MetadataFieldsTab() {
                   onChange={(e) => setEditField({ ...editField, description: e.target.value })}
                 />
               </Field>
-              <Field label="Choices for select fields">
+              <Field label="Choices (list types only), as Label:value, comma separated">
                 <Input value={optionsText} onChange={(e) => setOptionsText(e.target.value)} />
               </Field>
 
-              <div className="space-y-3 p-4 bg-ui-bg-subtle border rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="edit-req"
-                    checked={editField.required}
-                    onCheckedChange={(checked) =>
-                      setEditField({ ...editField, required: Boolean(checked) })
-                    }
-                  />
-                  <Label htmlFor="edit-req">Required for editors</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="edit-loc"
-                    checked={editField.localized}
-                    onCheckedChange={(checked) =>
-                      setEditField({ ...editField, localized: Boolean(checked) })
-                    }
-                  />
-                  <Label htmlFor="edit-loc">Different per language</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="edit-store"
-                    checked={editField.visible_in_storefront}
-                    onCheckedChange={(checked) =>
-                      setEditField({ ...editField, visible_in_storefront: Boolean(checked) })
-                    }
-                  />
-                  <Label htmlFor="edit-store">Available to storefront</Label>
-                </div>
+              <Text size="small" className="text-ui-fg-subtle">
+                Key <code>{editField.key}</code> · {typeLabel(editField.type)} ·{' '}
+                {scopeLabel(editField.scope)}. Key, type and languages cannot be changed.
+              </Text>
+              <div className="flex items-center gap-2 rounded-lg border bg-ui-bg-subtle p-4">
+                <Checkbox
+                  id="edit-req"
+                  checked={editField.required}
+                  onCheckedChange={(checked) =>
+                    setEditField({ ...editField, required: Boolean(checked) })
+                  }
+                />
+                <Label htmlFor="edit-req">Required: a product cannot be saved without it</Label>
               </div>
             </FocusModal.Body>
           </FocusModal.Content>

@@ -263,7 +263,7 @@ export const callAiProviderStep = createStep(
         status: 'failed',
         generated: {},
         error_message:
-          'AI provider API key is not configured. Configure the shared AI gateway key or a PIM AI override.',
+          'AI is not set up: no AI provider key is saved. Add one on the AI Setup tab (or in Support tickets > AI settings when the AI settings are shared).',
       })
     }
 
