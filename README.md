@@ -19,7 +19,7 @@ Medusa v2 plugin for lightweight Product Information Management: localized produ
 
 ## Compatibility
 
-- Medusa `2.21.2` (`@medusajs/framework`, `@medusajs/medusa`, `@medusajs/admin-sdk` peer dependencies).
+- Medusa `2.22.6` (`@medusajs/framework`, `@medusajs/medusa`, `@medusajs/admin-sdk` peer dependencies).
 - Node.js `>=20.19.0`.
 
 ## Installation
