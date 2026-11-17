@@ -2,11 +2,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Trash } from '@medusajs/icons'
 import { Button, IconButton, Input, Label, Text, Textarea, toast, usePrompt } from '@medusajs/ui'
+import { useNavigate } from 'react-router-dom'
+import { formatRelative } from '../../components/ui/format'
+import { toastWithResult } from '../../components/ui/undo-toast'
+import { useUnsavedGuard } from '../../components/ui/use-unsaved-guard'
 import { sdk } from '../../lib/sdk'
 import { getErrorMessage } from '../../../lib/error-messages'
 import { AiDraftHelper } from './ai-draft-helper'
 import { usePimAiStatus } from './ai-status'
 import { AutoTranslatePanel } from './auto-translate-panel'
+import { DescriptionEditor } from './description-editor'
 import { LocaleStatusStrip } from './locale-status-strip'
 import { MetadataFieldInput } from './metadata-field-input'
 import { MobileProductPicker } from './mobile-product-picker'
@@ -56,11 +61,14 @@ function readLinkedProductId(): string {
 
 interface ProductsTabProps {
   onOpenAiSetup?: () => void
+  /** Told whether the editor holds unsaved edits, so the page can guard its tab switch. */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
-export function ProductsTab({ onOpenAiSetup }: ProductsTabProps = {}) {
+export function ProductsTab({ onOpenAiSetup, onDirtyChange }: ProductsTabProps = {}) {
   const queryClient = useQueryClient()
   const prompt = usePrompt()
+  const navigate = useNavigate()
   const aiStatus = usePimAiStatus()
   const [search, setSearch] = useState('')
   // `?product_id=` deep link (the product page's "Edit product content" link).
@@ -294,6 +302,13 @@ export function ProductsTab({ onOpenAiSetup }: ProductsTabProps = {}) {
     setForm(initialForm)
   }, [initialForm, selectedProductId, locale, channel])
 
+  // S6: warn before a reload, a tab close or an admin link drops unsaved edits.
+  useUnsavedGuard(isDirty)
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+  }, [isDirty, onDirtyChange])
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
+
   useEffect(() => {
     setMetadataErrors({})
   }, [selectedProductId, locale, channel])
@@ -385,7 +400,7 @@ export function ProductsTab({ onOpenAiSetup }: ProductsTabProps = {}) {
         },
       ),
     onSuccess: () => {
-      toast.success('Draft saved successfully')
+      toast.success(`${locale.toUpperCase()} draft saved. It is not live until you publish it.`)
       invalidateContent()
     },
     onError: (error: Error) => toast.error(error.message),
@@ -398,7 +413,11 @@ export function ProductsTab({ onOpenAiSetup }: ProductsTabProps = {}) {
         body: { content_id: contentId, archive_previous: true },
       }),
     onSuccess: () => {
-      toast.success('Content published successfully')
+      const productId = selectedProductId
+      // S11: end with the result. The product page's "Product text" card shows what the store uses.
+      toastWithResult(`${locale.toUpperCase()} published. The store now shows this text.`, 'Open product', () =>
+        navigate(`/products/${productId}`),
+      )
       invalidateContent()
     },
     onError: (error: Error) => toast.error(error.message),
@@ -488,6 +507,38 @@ export function ProductsTab({ onOpenAiSetup }: ProductsTabProps = {}) {
   }
 
   const canPublish = activeContent && ['draft', 'reviewed'].includes(activeContent.status)
+  const hasPublished = Boolean(
+    contentQuery.data?.content?.some((content) => content.status === 'published'),
+  )
+  const localeCode = locale.toUpperCase()
+  // One line under the editor that says whether the store shows this text yet.
+  const saveStatus: { text: string; tone: 'neutral' | 'warning' | 'live' } = isDirty
+    ? {
+        text: `Unsaved changes. Save draft keeps them without changing the store${
+          hasPublished ? `; the store keeps the published ${localeCode} text` : ''
+        }.`,
+        tone: 'warning',
+      }
+    : !activeContent
+      ? {
+          text: `No ${localeCode} Product content yet. The store shows the product's own text.`,
+          tone: 'neutral',
+        }
+      : activeContent.status === 'published'
+        ? {
+            text: `Published, live in the store (last changed ${formatRelative(activeContent.updated_at)}).`,
+            tone: 'live',
+          }
+        : {
+            text: `${activeContent.status === 'reviewed' ? 'Reviewed draft' : 'Draft'} saved ${formatRelative(
+              activeContent.updated_at,
+            )}, not live. ${
+              hasPublished
+                ? `The store shows the published ${localeCode} text until you publish this draft.`
+                : `Publish ${localeCode} to show it in the store.`
+            }`,
+            tone: 'neutral',
+          }
   const canUnpublish = activeContent?.status === 'published'
   const hasMetadataErrors = Object.values(metadataErrors).some((message) => Boolean(message))
 
@@ -632,6 +683,7 @@ export function ProductsTab({ onOpenAiSetup }: ProductsTabProps = {}) {
                   canPublish={canPublish}
                   canUnpublish={canUnpublish}
                   isDirty={isDirty}
+                  saveStatus={saveStatus}
                   isUnpublishing={unpublishMutation.isPending}
                   onUnpublish={() => void handleUnpublish()}
                   changeReason={form.change_reason}
@@ -675,7 +727,7 @@ export function ProductsTab({ onOpenAiSetup }: ProductsTabProps = {}) {
                           variant="secondary"
                           isLoading={translateHereMutation.isPending}
                           disabled={!aiStatus.ready || translateHereMutation.isPending}
-                          title={aiStatus.ready ? undefined : 'AI is not set up (see the Settings tab)'}
+                          title={aiStatus.ready ? undefined : 'AI is off. Turn it on in the Settings tab.'}
                           onClick={() => translateHereMutation.mutate()}
                         >
                           Translate from {baseLocale.toUpperCase()} with AI
@@ -705,16 +757,12 @@ export function ProductsTab({ onOpenAiSetup }: ProductsTabProps = {}) {
                         />
                       </Field>
                     </div>
-                    <Field label="Description">
-                      <Textarea
-                        rows={7}
-                        value={form.description}
-                        placeholder={
-                          isBaseLocale ? undefined : (selectedProduct?.description ?? '')
-                        }
-                        onChange={(event) => setForm({ ...form, description: event.target.value })}
-                      />
-                    </Field>
+                    <DescriptionEditor
+                      key={`${selectedProductId}:${locale}`}
+                      value={form.description}
+                      placeholder={isBaseLocale ? undefined : (selectedProduct?.description ?? '')}
+                      onChange={(description) => setForm((current) => ({ ...current, description }))}
+                    />
                   </div>
 
                   <div className="space-y-3">

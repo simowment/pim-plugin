@@ -1,7 +1,7 @@
 import { defineRouteConfig } from '@medusajs/admin-sdk'
 import { useCallback, useEffect, useState } from 'react'
 import { Language } from '@medusajs/icons'
-import { Heading, Tabs, Text } from '@medusajs/ui'
+import { Heading, Tabs, Text, usePrompt } from '@medusajs/ui'
 import { AiSettingsTab } from './ai-settings-tab'
 import { JobsTab } from './jobs-tab'
 import { MetadataFieldsTab } from './metadata-fields-tab'
@@ -58,7 +58,28 @@ function useTabParam(): [PimTab, (tab: string) => void] {
 }
 
 const PimPage = () => {
-  const [activeTab, setActiveTab] = useTabParam()
+  const [activeTab, setTab] = useTabParam()
+  const prompt = usePrompt()
+  // Leaving the Content tab unmounts the editor, so ask first when it holds unsaved edits.
+  const [editorDirty, setEditorDirty] = useState(false)
+  const setActiveTab = useCallback(
+    (next: string) => {
+      if (!editorDirty || next === activeTab) {
+        setTab(next)
+        return
+      }
+      void prompt({
+        title: 'Discard unsaved changes?',
+        description: 'Your changes to this product content are not saved yet.',
+        confirmText: 'Discard',
+        cancelText: 'Keep editing',
+        variant: 'danger',
+      }).then((confirmed) => {
+        if (confirmed) setTab(next)
+      })
+    },
+    [activeTab, editorDirty, prompt, setTab],
+  )
 
   return (
     <div className="flex flex-col gap-y-2 p-3">
@@ -86,7 +107,7 @@ const PimPage = () => {
           </Tabs.List>
         </div>
         <Tabs.Content value="products">
-          <ProductsTab onOpenAiSetup={() => setActiveTab('settings')} />
+          <ProductsTab onOpenAiSetup={() => setActiveTab('settings')} onDirtyChange={setEditorDirty} />
         </Tabs.Content>
         <Tabs.Content value="jobs">
           <JobsTab />

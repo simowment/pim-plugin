@@ -1,4 +1,4 @@
-import { Button, Input, Label } from '@medusajs/ui'
+import { Button, Input, Label, Text } from '@medusajs/ui'
 
 const CHANGE_REASON_INPUT_ID = 'pim-change-reason'
 
@@ -6,6 +6,8 @@ interface ProductEditorActionBarProps {
   canPublish: boolean | undefined
   canUnpublish: boolean
   isDirty: boolean
+  /** Whether the store shows this text yet: "Draft saved 3 minutes ago, not live." */
+  saveStatus?: { text: string; tone: 'neutral' | 'warning' | 'live' }
   isUnpublishing: boolean
   onUnpublish: () => void
   changeReason: string
@@ -23,6 +25,7 @@ export function ProductEditorActionBar({
   canPublish,
   canUnpublish,
   isDirty,
+  saveStatus,
   isUnpublishing,
   onUnpublish,
   changeReason,
@@ -37,6 +40,21 @@ export function ProductEditorActionBar({
 }: ProductEditorActionBarProps) {
   return (
     <div className="sticky bottom-0 z-20 shrink-0 border-t border-ui-border-base bg-ui-bg-base p-3">
+      {saveStatus ? (
+        <Text
+          size="xsmall"
+          role="status"
+          className={`mb-2 ${
+            saveStatus.tone === 'warning'
+              ? 'text-ui-fg-base font-medium'
+              : saveStatus.tone === 'live'
+                ? 'text-ui-tag-green-text'
+                : 'text-ui-fg-subtle'
+          }`}
+        >
+          {saveStatus.text}
+        </Text>
+      ) : null}
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end">
         <div className="min-w-0 flex-1 space-y-1">
           <Label htmlFor={CHANGE_REASON_INPUT_ID} className="text-ui-fg-subtle text-xs">
