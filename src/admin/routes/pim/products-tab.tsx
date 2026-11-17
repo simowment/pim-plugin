@@ -675,7 +675,7 @@ export function ProductsTab({ onOpenAiSetup }: ProductsTabProps = {}) {
                           variant="secondary"
                           isLoading={translateHereMutation.isPending}
                           disabled={!aiStatus.ready || translateHereMutation.isPending}
-                          title={aiStatus.ready ? undefined : 'AI is not set up (see the AI setup tab)'}
+                          title={aiStatus.ready ? undefined : 'AI is not set up (see the Settings tab)'}
                           onClick={() => translateHereMutation.mutate()}
                         >
                           Translate from {baseLocale.toUpperCase()} with AI
@@ -877,7 +877,7 @@ export function ProductsTab({ onOpenAiSetup }: ProductsTabProps = {}) {
                         Template fields
                       </Text>
                       <Text size="xsmall" className="text-ui-fg-subtle">
-                        Fields defined on the Field templates tab, the same for every product.
+                        Fields defined under Settings &gt; Advanced: field templates, the same for every product.
                       </Text>
                     </div>
                     {metadataFieldsQuery.isError ? (

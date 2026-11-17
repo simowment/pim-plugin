@@ -47,7 +47,7 @@ export function AiNotReadyNotice({ status, onOpenAiSetup }: AiNotReadyNoticeProp
           ? `AI is off: ${status.error}`
           : status.shared
             ? 'AI is not set up. Add an AI key in Support tickets, AI settings (shared with this page).'
-            : 'AI is not set up. Add an AI key on the AI setup tab to draft and translate with AI.'}
+            : 'AI is not set up. Add an AI key on the Settings tab to draft and translate with AI.'}
       </Text>
       {onOpenAiSetup && !status.error && (
         <Button size="small" variant="secondary" className="shrink-0" onClick={onOpenAiSetup}>
