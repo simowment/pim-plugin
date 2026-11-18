@@ -1,7 +1,7 @@
 import { Button, Input, Text, toast } from '@medusajs/ui'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { ErrorState, errorMessage } from '../../../components/ui/error-state'
 import { InstallerCode } from '../../../components/ui/installer-hint'
 import { SaveBar } from '../../../components/ui/save-bar'
@@ -120,16 +120,6 @@ const FIELDS: Array<{
 
 function igm(slug: string | null, command: string) {
   return `node cli/bin/igm.mjs shop ${command} --shop ${slug ?? '<slug>'}`
-}
-
-/** Scrolls to #section once the page has rendered (links from status strips). */
-function useScrollToHash(ready: boolean) {
-  const { hash } = useLocation()
-  useEffect(() => {
-    if (!ready || !hash) return
-    const target = document.getElementById(decodeURIComponent(hash.slice(1)))
-    target?.scrollIntoView({ block: 'start' })
-  }, [ready, hash])
 }
 
 function GenerationSection({ view }: { view: PimSettingsView }) {
@@ -324,7 +314,6 @@ const PimSettingsPage = () => {
   })
   const view = query.data?.settings
   const ai = aiQuery.data?.settings
-  useScrollToHash(Boolean(view))
   const slug = view?.shop_slug ?? null
 
   return (
