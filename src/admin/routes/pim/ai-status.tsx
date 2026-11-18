@@ -12,7 +12,7 @@ export interface PimAiStatus {
   error: string | null
 }
 
-/** Reads GET /admin/pim/ai-settings once (same cache as the AI setup tab). */
+/** Reads GET /admin/pim/ai-settings once (same cache as the AI section of /pim/settings). */
 export function usePimAiStatus(): PimAiStatus {
   const query = useQuery({
     queryKey: ['pim-ai-settings'],
@@ -46,12 +46,12 @@ export function AiNotReadyNotice({ status, onOpenAiSetup }: AiNotReadyNoticeProp
         {status.error
           ? `AI is off: ${status.error}`
           : status.shared
-            ? 'AI is not set up. Add an AI key in Support tickets, AI settings (shared with this page).'
-            : 'AI is not set up. Add an AI key on the Settings tab to draft and translate with AI.'}
+            ? 'AI is off: no AI key is saved. Product content shares the AI key of the Support inbox; add it in Support inbox settings.'
+            : 'AI is off: no AI key is saved. Add one in Product content settings to draft and translate with AI.'}
       </Text>
-      {onOpenAiSetup && !status.error && (
+      {onOpenAiSetup && (
         <Button size="small" variant="secondary" className="shrink-0" onClick={onOpenAiSetup}>
-          Open AI setup
+          Open AI settings
         </Button>
       )}
     </div>

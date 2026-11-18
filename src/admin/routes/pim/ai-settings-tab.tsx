@@ -25,10 +25,10 @@ function aiProviderDefaults(provider: string) {
 }
 
 function aiSettingsSourceLabel(source?: PimAiSettings['source']) {
-  if (source === 'gateway') return 'Shared AI settings (Support tickets)'
-  if (source === 'pim_settings') return 'Saved on this tab'
-  if (source === 'environment') return 'Shop configuration'
-  return 'Not set up'
+  if (source === 'gateway') return 'Shared with the Support inbox'
+  if (source === 'pim_settings') return 'Set here'
+  if (source === 'environment') return 'Set on the host'
+  return 'Default (no AI key yet)'
 }
 
 function isKiloProvider(provider: string) {
@@ -152,7 +152,7 @@ export function AiSettingsTab() {
     <Container className="mt-4 overflow-hidden">
       <div className="border-b border-ui-border-base px-6 py-4">
         <Text size="small" weight="plus">
-          AI setup
+          AI service
         </Text>
         <Text size="small" leading="compact" className="text-ui-fg-subtle">
           The AI service used to draft and translate product content. AI never publishes: every
@@ -160,8 +160,8 @@ export function AiSettingsTab() {
         </Text>
         {isShared && (
           <Text size="small" leading="compact" className="mt-2">
-            These settings are shared with Support tickets and can only be changed there (Support
-            tickets, AI settings). This tab shows them read-only.
+            These settings are shared with the Support inbox and can only be changed in Support
+            inbox settings. They are shown here read-only.
           </Text>
         )}
       </div>

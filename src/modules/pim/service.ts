@@ -4,6 +4,7 @@ import ProductMetadataField from './models/product-metadata-field'
 import ProductContentVersion from './models/product-content-version'
 import ProductContentJob from './models/product-content-job'
 import PimAiSetting from './models/pim-ai-setting'
+import PimSetting from './models/pim-setting'
 import { setPimPluginOptions, type PimPluginOptions } from '../../lib/config'
 
 export class PimModuleService extends MedusaService({
@@ -12,6 +13,7 @@ export class PimModuleService extends MedusaService({
   ProductContentVersion,
   ProductContentJob,
   PimAiSetting,
+  PimSetting,
 }) {
   // Medusa passes plugin / module options as the second constructor argument.
   constructor(container: Record<string, unknown>, options?: PimPluginOptions) {

@@ -9,6 +9,12 @@ import {
   resolveAiKeyEncryptionSecret,
   resolveAiOptions,
 } from './config'
+import {
+  DEFAULT_AI_MAX_TOKENS,
+  DEFAULT_AI_REQUEST_TIMEOUT_MS,
+  DEFAULT_AI_TEMPERATURE,
+  resolveGenerationParamsWithStored,
+} from './pim-settings'
 
 // ── Shared provider contract constrained by PIM's supported provider allowlist ──────
 
@@ -30,9 +36,6 @@ const OPENAI_BASE_URL = 'https://api.openai.com/v1'
 const OPENAI_MODEL = 'gpt-4o-mini'
 export const KILO_BASE_URL = 'https://api.kilo.ai/api/gateway'
 export const KILO_MODEL = 'kilo-auto/balanced'
-const DEFAULT_AI_TEMPERATURE = 0.4
-const DEFAULT_AI_MAX_TOKENS = 8192
-const DEFAULT_AI_REQUEST_TIMEOUT_MS = 120000
 const PIM_AI_SETTING_KEY = 'default'
 const ENCRYPTED_SECRET_PREFIX = 'enc:v1'
 const ENCRYPTED_SECRET_SEPARATOR = ':'
@@ -374,6 +377,8 @@ export async function resolvePimAiConfigFromContainer(container: {
   resolve: <T = unknown>(key: string, options?: Record<string, unknown>) => T
 }): Promise<PimAiConfig> {
   const gateway = resolveOptionalAiGateway(container)
+  // Temperature, max tokens and timeout saved on Product content > Settings win over the host.
+  const generationParams = await resolveGenerationParamsWithStored(container)
   if (!gateway) {
     const envAi = resolveEnvAiConfig()
     const persistedSettings = await resolvePersistedPimAiSettings(container)
@@ -386,7 +391,7 @@ export async function resolvePimAiConfigFromContainer(container: {
       api_key: decryptApiKey(persistedSettings.encrypted_api_key),
       base_url: persistedSettings.base_url,
       model: persistedSettings.model,
-      ...resolveGenerationParams(),
+      ...generationParams,
       headers: {
         ...AiHeadersSchema.parse(envAi.headers ?? {}),
         ...(persistedSettings.headers_json ?? {}),
@@ -408,7 +413,7 @@ export async function resolvePimAiConfigFromContainer(container: {
     api_key: providerConfig.api_key,
     base_url: providerConfig.base_url,
     model: providerConfig.model,
-    ...resolveGenerationParams(),
+    ...generationParams,
     headers: mergedHeaders,
   })
 }
@@ -498,7 +503,15 @@ export async function getPimAiSettings(container: {
     // A settings read must not fail the page: report AI as off with the reason.
     if (!(error instanceof MedusaError) || error.type !== MedusaError.Types.INVALID_DATA) throw error
     unavailableReason = error.message
-    config = { ...resolvePimAiConfig({}), api_key: '' }
+    const fallback = resolvePimAiConfig({})
+    const stored = await resolveGenerationParamsWithStored(container)
+    config = {
+      ...fallback,
+      temperature: stored.temperature ?? fallback.temperature,
+      max_tokens: stored.max_tokens ?? fallback.max_tokens,
+      request_timeout_ms: stored.request_timeout_ms ?? fallback.request_timeout_ms,
+      api_key: '',
+    }
   }
 
   return {

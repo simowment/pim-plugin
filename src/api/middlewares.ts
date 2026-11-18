@@ -11,6 +11,7 @@ import {
   METADATA_FIELD_TYPES,
   METADATA_FIELD_WRITE_POLICIES,
 } from '../lib/metadata-fields'
+import { PimEditableSettingsSchema } from '../lib/pim-settings'
 import { CanonicalLocaleSchema, ProductContentFieldsSchema } from '../lib/product-content-schema'
 import { PRODUCT_CONTENT_STATUSES } from '../modules/pim/models/product-content'
 import {
@@ -196,6 +197,11 @@ export default defineMiddlewares({
       matcher: '/admin/pim/ai-settings',
       method: 'POST',
       middlewares: [validateAndTransformBody(UpdatePimAiSettingsSchema)],
+    },
+    {
+      matcher: '/admin/pim/settings',
+      method: 'POST',
+      middlewares: [validateAndTransformBody(PimEditableSettingsSchema.strict())],
     },
     {
       matcher: '/admin/pim/ai-settings/models',

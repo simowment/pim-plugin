@@ -727,7 +727,7 @@ export function ProductsTab({ onOpenAiSetup, onDirtyChange }: ProductsTabProps =
                           variant="secondary"
                           isLoading={translateHereMutation.isPending}
                           disabled={!aiStatus.ready || translateHereMutation.isPending}
-                          title={aiStatus.ready ? undefined : 'AI is off. Turn it on in the Settings tab.'}
+                          title={aiStatus.ready ? undefined : 'AI is off: no AI key is saved. Open Product content settings to add one.'}
                           onClick={() => translateHereMutation.mutate()}
                         >
                           Translate from {baseLocale.toUpperCase()} with AI
